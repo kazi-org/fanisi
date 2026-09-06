@@ -1,0 +1,8 @@
+/fanisi
+/bin/
+/.fanisi/
+/runs/
+.env
+.env.*
+!.env.example
+/.code-review-graph/

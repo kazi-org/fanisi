@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "workspace": "go-fix",
+  "output": "../.fanisi/runs/clamp",
+  "key_file": "../.env",
+  "prompt_file": "clamp.md",
+  "read_paths": ["clamp_test.go"],
+  "write_paths": ["clamp.go"],
+  "context": [
+    {"path": "clamp.go", "start": 1, "lines": 40},
+    {"path": "clamp_test.go", "start": 1, "lines": 80}
+  ],
+  "format_command": ["gofmt", "-w", "clamp.go"],
+  "verify_command": ["go", "test", "./..."],
+  "max_calls": 8,
+  "max_seconds": 300,
+  "max_cost_usd": 0.05,
+  "max_tokens_total": 100000,
+  "max_output_tokens": 4096,
+  "max_context_bytes": 50000,
+  "packet_bytes": 8000,
+  "reasoning": "medium",
+  "pricing": {
+    "input_usd_per_million": 0.075,
+    "output_usd_per_million": 0.25,
+    "source": "OpenRouter Z.AI GLM catalog observed 2026-09-06; admission estimate only, refresh before use"
+  }
+}
