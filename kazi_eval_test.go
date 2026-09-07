@@ -444,10 +444,10 @@ func TestKaziExplicitCancellationKillsActiveWorker(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- evalRun(ctx, path, "kazi-claude", 1) }()
-	pidPath := filepath.Join(filepath.Dir(e.TaskConfig), "worker.pid")
+	pidPath := filepath.Join(filepath.Dir(e.TaskConfig), "child.pid")
 	until := time.Now().Add(10 * time.Second)
 	for {
-		if _, err := os.Stat(pidPath); err == nil {
+		if info, err := os.Stat(pidPath); err == nil && info.Size() > 0 {
 			break
 		}
 		if time.Now().After(until) {
