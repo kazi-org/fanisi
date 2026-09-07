@@ -44,7 +44,10 @@ func (s *generationStream) Read(p []byte) (int, error) {
 }
 
 func (s *generationStream) capture() error {
-	if s.overflow || !bytes.HasPrefix(s.line, []byte("data:")) {
+	if s.overflow {
+		return s.unknown()
+	}
+	if !bytes.HasPrefix(s.line, []byte("data:")) {
 		return nil
 	}
 	var event struct {
@@ -54,7 +57,7 @@ func (s *generationStream) capture() error {
 		} `json:"message"`
 	}
 	if json.Unmarshal(bytes.TrimSpace(s.line[5:]), &event) != nil {
-		return nil
+		return s.unknown()
 	}
 	if event.Type == "message_stop" && !s.stopped {
 		s.stopped = true
@@ -67,16 +70,13 @@ func (s *generationStream) capture() error {
 	}
 	id := event.Message.ID
 	if !strings.HasPrefix(id, "gen-") || len(id) > 256 || !simpleID(id) {
-		if s.onUnknown != nil {
-			return s.onUnknown()
-		}
-		return nil
+		return s.unknown()
 	}
 	if s.seen[id] {
 		return nil
 	}
 	if len(s.seen) >= 8 {
-		return errors.New("too many generation identities in one response")
+		return errors.Join(errors.New("too many generation identities in one response"), s.unknown())
 	}
 	if s.seen == nil {
 		s.seen = map[string]bool{}
@@ -84,4 +84,13 @@ func (s *generationStream) capture() error {
 	s.seen[id] = true
 	s.stopped = false
 	return s.onID(id)
+}
+
+// A skipped frame could contain another billing identity. Retain a coverage gap
+// even if a later stop event arrives; forwarding bytes does not prove accounting.
+func (s *generationStream) unknown() error {
+	if s.onUnknown != nil {
+		return s.onUnknown()
+	}
+	return nil
 }
