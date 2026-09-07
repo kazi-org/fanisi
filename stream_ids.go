@@ -12,12 +12,13 @@ import (
 // identities. An interrupted Claude reply may never reach its assistant log.
 type generationStream struct {
 	io.ReadCloser
-	line     []byte
-	overflow bool
-	seen     map[string]bool
-	onID     func(string) error
-	onStop   func() error
-	stopped  bool
+	line      []byte
+	overflow  bool
+	seen      map[string]bool
+	onID      func(string) error
+	onStop    func() error
+	onUnknown func() error
+	stopped   bool
 }
 
 func (s *generationStream) Read(p []byte) (int, error) {
@@ -65,7 +66,13 @@ func (s *generationStream) capture() error {
 		return nil
 	}
 	id := event.Message.ID
-	if !strings.HasPrefix(id, "gen-") || len(id) > 256 || !simpleID(id) || s.seen[id] {
+	if !strings.HasPrefix(id, "gen-") || len(id) > 256 || !simpleID(id) {
+		if s.onUnknown != nil {
+			return s.onUnknown()
+		}
+		return nil
+	}
+	if s.seen[id] {
 		return nil
 	}
 	if len(s.seen) >= 8 {

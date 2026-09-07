@@ -79,7 +79,7 @@ func TestReconciliationRecoversEarlyIDsButPreservesCoverageGaps(t *testing.T) {
 		name                    string
 		terminal, gap, complete bool
 	}{
-		{"interrupted", false, false, false}, {"finished", true, false, true}, {"missing_ingress_identity", true, true, false}, {"blank_ingress_identity", true, true, false},
+		{"interrupted", false, false, false}, {"finished", true, false, true}, {"missing_ingress_identity", true, true, false}, {"blank_ingress_identity", true, true, false}, {"unrecognized_stream_identity", true, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -98,7 +98,7 @@ func TestReconciliationRecoversEarlyIDsButPreservesCoverageGaps(t *testing.T) {
 						ids = []string{""}
 					}
 				}
-				if err := writeJSON(filepath.Join(dir, fmt.Sprintf("relay-request-%d.json", n+1)), map[string]any{"generation_ids": ids, "stream_complete": tc.terminal}); err != nil {
+				if err := writeJSON(filepath.Join(dir, fmt.Sprintf("relay-request-%d.json", n+1)), map[string]any{"generation_ids": ids, "stream_complete": tc.terminal, "identity_gap": tc.name == "unrecognized_stream_identity"}); err != nil {
 					t.Fatal(err)
 				}
 			}

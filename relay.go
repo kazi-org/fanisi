@@ -104,7 +104,7 @@ func relayHandler(target *url.URL, key, token, output string, transport http.Rou
 				record["headers_at"] = time.Now().UTC()
 				if strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
 					var ids []string
-					resp.Body = &generationStream{ReadCloser: resp.Body, onID: func(id string) error {
+					resp.Body = &generationStream{ReadCloser: resp.Body, onUnknown: func() error { record["identity_gap"] = true; return writeRelayMetadata(path, record) }, onID: func(id string) error {
 						ids = append(ids, id)
 						record["generation_ids"] = ids
 						record["stream_complete"] = false

@@ -65,6 +65,7 @@ func generationIDs(dir string) ([]string, error) {
 		var record struct {
 			IDs      []string `json:"generation_ids"`
 			Complete bool     `json:"stream_complete"`
+			Gap      bool     `json:"identity_gap"`
 		}
 		if err := readJSON(path, &record); err != nil {
 			return nil, err
@@ -165,12 +166,16 @@ func reconcileWithClient(ctx context.Context, dir, key string, client *http.Clie
 		var record struct {
 			IDs      []string `json:"generation_ids"`
 			Complete bool     `json:"stream_complete"`
+			Gap      bool     `json:"identity_gap"`
 		}
 		if err := readJSON(path, &record); err != nil {
 			return err
 		}
 		if len(record.IDs) == 0 || slices.Contains(record.IDs, "") {
 			ledger.Unresolved = append(ledger.Unresolved, filepath.Base(path)+": upstream request has no observed generation id")
+		}
+		if record.Gap {
+			ledger.Unresolved = append(ledger.Unresolved, filepath.Base(path)+": stream included an unrecognized generation identity")
 		}
 		if !record.Complete {
 			ledger.Unresolved = append(ledger.Unresolved, filepath.Base(path)+": upstream stream did not finish")

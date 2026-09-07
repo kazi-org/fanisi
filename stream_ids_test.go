@@ -16,10 +16,14 @@ func TestGenerationStreamPreservesFragmentedBytesAndOnlyCapturesIDs(t *testing.T
 		`data: {"type":"message_start","message":{"id":"gen-after-overflow"}}` + "\n" + `data: {"type":"message_stop"}`
 	var ids []string
 	stops := 0
-	reader := &generationStream{ReadCloser: io.NopCloser(iotest.OneByteReader(strings.NewReader(input))), onID: func(id string) error { ids = append(ids, id); return nil }, onStop: func() error { stops++; return nil }}
+	unknown := 0
+	reader := &generationStream{ReadCloser: io.NopCloser(iotest.OneByteReader(strings.NewReader(input))), onID: func(id string) error { ids = append(ids, id); return nil }, onStop: func() error { stops++; return nil }, onUnknown: func() error { unknown++; return nil }}
 	got, err := io.ReadAll(reader)
 	if err != nil || string(got) != input {
 		t.Fatalf("stream changed or EOF corrupted: %v", err)
+	}
+	if unknown != 1 {
+		t.Fatalf("unknown identity was hidden: %d", unknown)
 	}
 	if stops != 2 {
 		t.Fatalf("lost completion events: %d", stops)
