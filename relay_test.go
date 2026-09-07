@@ -115,3 +115,40 @@ func TestRelayRejectsUnauthorizedOrUnrequestedCallsBeforeUpstream(t *testing.T) 
 		t.Fatal("rejected input reached provider")
 	}
 }
+
+func TestRelayRetainsUnknownIdentityAsCoverageGap(t *testing.T) {
+	payload := `data: {"type":"message_start","message":{"id":"gen-known"}}` + "\n\n" +
+		`data: {"type":"message_start","message":{"id":"unrecognized"}}` + "\n\n" +
+		`data: {"type":"message_stop"}` + "\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, payload)
+	}))
+	defer upstream.Close()
+	target, _ := url.Parse(upstream.URL)
+	output := t.TempDir()
+	relay := httptest.NewServer(relayHandler(target, "provider-secret", "local-secret", output, http.DefaultTransport))
+	defer relay.Close()
+	request, _ := http.NewRequest(http.MethodPost, relay.URL+"/v1/messages", strings.NewReader(`{"model":"`+model+`"}`))
+	request.Header.Set("Authorization", "Bearer local-secret")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	got, err := io.ReadAll(response.Body)
+	if err != nil || string(got) != payload {
+		t.Fatalf("forwarded stream changed: %v", err)
+	}
+	var record struct {
+		Gap      bool     `json:"identity_gap"`
+		Complete bool     `json:"stream_complete"`
+		IDs      []string `json:"generation_ids"`
+	}
+	if err := readJSON(filepath.Join(output, "relay-request-1.json"), &record); err != nil {
+		t.Fatal(err)
+	}
+	if !record.Gap || !record.Complete || len(record.IDs) != 1 {
+		t.Fatalf("unknown identity hidden by valid identity/stop: %+v", record)
+	}
+}
