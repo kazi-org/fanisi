@@ -60,7 +60,16 @@ func recordReview(ctx context.Context, dir, decision, reviewer, kind string, sec
 		if cfg.Task.Workspace != a.Workspace {
 			return errors.New("evaluation workspace mismatch")
 		}
-		ok, err := scopeUnchanged(ctx, cfg.Task, a.Base)
+		ok, err := scopeUnchangedWithArtifacts(ctx, cfg.Task, a.Base, a.ControllerArtifacts)
+		baselinePath := filepath.Join(dir, "workspace-baseline.json")
+		if _, exists := a.Protected[baselinePath]; exists {
+			var baseline map[string]FileIdentity
+			if loadErr := readJSON(baselinePath, &baseline); loadErr != nil {
+				return loadErr
+			}
+			err = auditWorkspace(ctx, cfg.Task, a.Base, baseline, a.ControllerArtifacts)
+			ok = err == nil
+		}
 		if err != nil {
 			return err
 		}

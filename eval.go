@@ -15,44 +15,46 @@ import (
 
 // Evaluation names a frozen task once; every arm starts from the same commit.
 type Evaluation struct {
-	ClaudeProvider         string   `json:"claude_provider,omitempty"`
-	ClaudeMaxOutputTokens  int      `json:"claude_max_output_tokens,omitempty"`
-	RepairFrom             string   `json:"repair_from,omitempty"`
-	ClaudeMaxEstimatedCost float64  `json:"claude_max_estimated_cost_usd"`
-	SchemaVersion          int      `json:"schema_version"`
-	TaskID                 string   `json:"task_id"`
-	Repository             string   `json:"repository"`
-	Base                   string   `json:"base"`
-	WorktreeRoot           string   `json:"worktree_root"`
-	Output                 string   `json:"output"`
-	TaskConfig             string   `json:"task_config"`
-	ProtectedFiles         []string `json:"protected_files"`
-	PreparationSeconds     *float64 `json:"preparation_seconds"`
+	Kazi                   *KaziEvaluation `json:"kazi,omitempty"`
+	ClaudeProvider         string          `json:"claude_provider,omitempty"`
+	ClaudeMaxOutputTokens  int             `json:"claude_max_output_tokens,omitempty"`
+	RepairFrom             string          `json:"repair_from,omitempty"`
+	ClaudeMaxEstimatedCost float64         `json:"claude_max_estimated_cost_usd"`
+	SchemaVersion          int             `json:"schema_version"`
+	TaskID                 string          `json:"task_id"`
+	Repository             string          `json:"repository"`
+	Base                   string          `json:"base"`
+	WorktreeRoot           string          `json:"worktree_root"`
+	Output                 string          `json:"output"`
+	TaskConfig             string          `json:"task_config"`
+	ProtectedFiles         []string        `json:"protected_files"`
+	PreparationSeconds     *float64        `json:"preparation_seconds"`
 }
 
 type Attempt struct {
-	RepairFrom          string            `json:"repair_from,omitempty"`
-	SchemaVersion       int               `json:"schema_version"`
-	TaskID              string            `json:"task_id"`
-	Arm                 string            `json:"arm"`
-	Number              int               `json:"attempt"`
-	Base                string            `json:"base"`
-	Branch              string            `json:"branch"`
-	Workspace           string            `json:"workspace"`
-	StartedAt           time.Time         `json:"started_at"`
-	WallSeconds         float64           `json:"wall_seconds"`
-	PreparationSeconds  *float64          `json:"preparation_seconds"`
-	ExecutionSeconds    float64           `json:"execution_seconds"`
-	VerificationSeconds float64           `json:"verification_seconds"`
-	Status              string            `json:"status"`
-	Error               string            `json:"error,omitempty"`
-	PatchSHA            string            `json:"patch_sha256"`
-	ScopeOK             bool              `json:"scope_ok"`
-	VerificationPassed  bool              `json:"verification_passed"`
-	BaselineExit        int               `json:"baseline_exit"`
-	ConfigurationSHA    string            `json:"configuration_sha256"`
-	PromptSHA           string            `json:"prompt_sha256"`
-	Protected           map[string]string `json:"protected_files"`
+	ControllerArtifacts map[string]ControllerArtifact `json:"controller_artifacts,omitempty"`
+	RepairFrom          string                        `json:"repair_from,omitempty"`
+	SchemaVersion       int                           `json:"schema_version"`
+	TaskID              string                        `json:"task_id"`
+	Arm                 string                        `json:"arm"`
+	Number              int                           `json:"attempt"`
+	Base                string                        `json:"base"`
+	Branch              string                        `json:"branch"`
+	Workspace           string                        `json:"workspace"`
+	StartedAt           time.Time                     `json:"started_at"`
+	WallSeconds         float64                       `json:"wall_seconds"`
+	PreparationSeconds  *float64                      `json:"preparation_seconds"`
+	ExecutionSeconds    float64                       `json:"execution_seconds"`
+	VerificationSeconds float64                       `json:"verification_seconds"`
+	Status              string                        `json:"status"`
+	Error               string                        `json:"error,omitempty"`
+	PatchSHA            string                        `json:"patch_sha256"`
+	ScopeOK             bool                          `json:"scope_ok"`
+	VerificationPassed  bool                          `json:"verification_passed"`
+	BaselineExit        int                           `json:"baseline_exit"`
+	ConfigurationSHA    string                        `json:"configuration_sha256"`
+	PromptSHA           string                        `json:"prompt_sha256"`
+	Protected           map[string]string             `json:"protected_files"`
 }
 
 func loadEvaluation(path string) (Evaluation, Config, error) {
@@ -122,8 +124,8 @@ func protectedHashes(paths []string) (map[string]string, error) {
 }
 
 func evalRun(ctx context.Context, path, arm string, number int) (runErr error) {
-	if arm != "fanisi" && arm != "claude" && arm != "claude-packet" {
-		return errors.New("arm must be fanisi, claude, or claude-packet")
+	if arm != "fanisi" && arm != "claude" && arm != "claude-packet" && arm != "kazi-claude" {
+		return errors.New("arm must be fanisi, claude, claude-packet, or kazi-claude")
 	}
 	if number < 1 || number > 100 {
 		return errors.New("attempt must be 1..100")
@@ -134,6 +136,21 @@ func evalRun(ctx context.Context, path, arm string, number int) (runErr error) {
 	}
 	if arm != "fanisi" && (e.ClaudeMaxEstimatedCost <= 0 || e.ClaudeMaxEstimatedCost > 100) {
 		return errors.New("Claude arms require an explicit claude_max_estimated_cost_usd (0..100); this is not provider spend")
+	}
+	if arm == "kazi-claude" {
+		if e.Kazi == nil || e.Kazi.MaxDispatches < 1 || e.Kazi.MaxDispatches > 2 || cfg.MaxCalls < e.Kazi.MaxDispatches || !filepath.IsAbs(e.Kazi.Executable) || e.ClaudeProvider != "Z.AI" || len(e.Kazi.ExecutableSHA) != 64 || e.ClaudeMaxOutputTokens < 1024 {
+			return errors.New("Kazi arm requires pinned executable, 1..2 dispatches and bounded Claude output")
+		}
+		for path, hash := range e.Kazi.Artifacts {
+			if !filepath.IsLocal(path) || filepath.Clean(path) != path || strings.Contains(path, "\\") || len(hash) != 64 {
+				return errors.New("controller artifacts require exact local paths and SHA256")
+			}
+			for _, write := range cfg.WritePaths {
+				if path == write {
+					return errors.New("controller artifact overlaps candidate scope")
+				}
+			}
+		}
 	}
 	base, err := gitOutput(ctx, e.Repository, "rev-parse", "--verify", e.Base+"^{commit}")
 	if err != nil {
@@ -224,6 +241,19 @@ func evalRun(ctx context.Context, path, arm string, number int) (runErr error) {
 	if err != nil {
 		return err
 	}
+	baseline, err := workspaceInventory(cfg.Workspace)
+	if err != nil {
+		return err
+	}
+	baselinePath := filepath.Join(output, "workspace-baseline.json")
+	if err := writeJSON(baselinePath, baseline); err != nil {
+		return err
+	}
+	baselineRaw, err := os.ReadFile(baselinePath)
+	if err != nil {
+		return err
+	}
+	a.Protected[baselinePath] = digest(baselineRaw)
 	brief, err := os.ReadFile(cfg.PromptFile)
 	if err != nil {
 		return err
@@ -241,7 +271,7 @@ func evalRun(ctx context.Context, path, arm string, number int) (runErr error) {
 	}
 	cfg.PromptFile = promptFile
 	prompt := brief
-	if arm != "claude" {
+	if arm != "claude" && arm != "kazi-claude" {
 		prompt, _, err = buildPacket(ctx, cfg)
 		if err != nil {
 			return err
@@ -251,18 +281,55 @@ func evalRun(ctx context.Context, path, arm string, number int) (runErr error) {
 	if err := writeNew(filepath.Join(output, "submitted-prompt.md"), prompt); err != nil {
 		return err
 	}
+	var kaziExecution KaziExecution
 	executionStart := time.Now()
+	workerCtx, stopWorker := context.WithTimeout(ctx, time.Duration(cfg.MaxSeconds)*time.Second)
 	if arm == "fanisi" {
-		runErr = run(ctx, cfg)
+		runErr = run(workerCtx, cfg)
+	} else if arm == "kazi-claude" {
+		runErr = runKazi(workerCtx, e, cfg, output, prompt, baseline, &kaziExecution)
 	} else {
 		claudeCfg := cfg
 		claudeCfg.MaxCost = e.ClaudeMaxEstimatedCost
-		runErr = runClaude(ctx, claudeCfg, output, prompt, ClaudeOptions{MaxOutputTokens: e.ClaudeMaxOutputTokens, Provider: e.ClaudeProvider})
+		runErr = runClaude(workerCtx, claudeCfg, output, prompt, ClaudeOptions{MaxOutputTokens: e.ClaudeMaxOutputTokens, Provider: e.ClaudeProvider})
 	}
+	stopWorker()
 	a.ExecutionSeconds = time.Since(executionStart).Seconds()
+	for path, want := range kaziExecution.Protected {
+		a.Protected[path] = want
+	}
+	for path, want := range a.Protected {
+		raw, err := os.ReadFile(path)
+		if err != nil || digest(raw) != want {
+			return errors.Join(runErr, fmt.Errorf("protected input changed before final grading: %s", path))
+		}
+	}
+	graderEnv := map[string]string{}
+	if arm == "kazi-claude" {
+		a.ControllerArtifacts = kaziExecution.Artifacts
+		manifestPath := filepath.Join(output, "controller-artifacts.json")
+		raw, readErr := os.ReadFile(manifestPath)
+		if readErr != nil || digest(raw) != kaziExecution.ArtifactManifestSHA {
+			return errors.Join(runErr, errors.New("parent artifact manifest integrity failure"))
+		}
+		if kaziExecution.Manifest.IntegrityError != "" {
+			return errors.Join(runErr, errors.New(kaziExecution.Manifest.IntegrityError))
+		}
+		for _, name := range []string{"dispatch-manifest.json", "controller-artifacts.json"} {
+			raw, err := os.ReadFile(filepath.Join(output, name))
+			if err != nil {
+				return errors.Join(runErr, err)
+			}
+			a.Protected[filepath.Join(output, name)] = digest(raw)
+		}
+		graderEnv["FANISI_CONTROLLER_ARTIFACT_MANIFEST"] = manifestPath
+	}
+	if err := auditWorkspace(ctx, cfg, sha, baseline, a.ControllerArtifacts); err != nil {
+		return errors.Join(runErr, err)
+	}
 	checkStart := time.Now()
 	// Run independently even after a worker failure; capture useful partial candidates.
-	_, exit, verifyErr := runCommand(ctx, cfg.Workspace, cfg.VerifyCommand, filepath.Join(output, "verification.log"))
+	_, exit, verifyErr := runCommandWithEnv(ctx, cfg.Workspace, cfg.VerifyCommand, filepath.Join(output, "verification.log"), graderEnv)
 	a.VerificationSeconds = time.Since(checkStart).Seconds()
 	a.VerificationPassed = exit == 0 && verifyErr == nil
 	current, err := snapshot(cfg)
@@ -285,7 +352,8 @@ func evalRun(ctx context.Context, path, arm string, number int) (runErr error) {
 			return errors.Join(runErr, fmt.Errorf("protected input changed: %s", p))
 		}
 	}
-	a.ScopeOK, err = scopeUnchanged(ctx, cfg, sha)
+	err = auditWorkspace(ctx, cfg, sha, baseline, a.ControllerArtifacts)
+	a.ScopeOK = err == nil
 	if err != nil {
 		return errors.Join(runErr, err)
 	}
@@ -300,58 +368,74 @@ func evalRun(ctx context.Context, path, arm string, number int) (runErr error) {
 	if !a.ScopeOK || !a.VerificationPassed {
 		return errors.Join(runErr, verifyErr, errors.New("candidate failed independent scope or verification checks"))
 	}
+	if arm == "kazi-claude" && runErr != nil {
+		return runErr
+	}
 	a.Status = "verified_pending_review"
 	return runErr
 }
 
 func candidatePatch(ctx context.Context, cfg Config) ([]byte, error) {
-	patch, err := gitOutput(ctx, cfg.Workspace, "diff", "--binary", "HEAD")
+	temporary, err := os.MkdirTemp("", "fanisi-candidate-index-")
 	if err != nil {
 		return nil, err
 	}
-	// Include explicitly allowed new files without staging the worker's changes.
-	for _, p := range cfg.WritePaths {
-		if _, err := gitOutput(ctx, cfg.Workspace, "ls-files", "--error-unmatch", "--", p); err == nil {
-			continue
-		}
-		path, err := scopedPath(cfg.Workspace, p, cfg.WritePaths)
+	defer os.RemoveAll(temporary)
+	run := func(args ...string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, "git", args...)
+		cmd.Dir = cfg.Workspace
+		cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+filepath.Join(temporary, "index"))
+		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("candidate index %s: %w: %s", args[0], err, out)
 		}
-		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			continue
+		return out, nil
+	}
+	if _, err := run("read-tree", "HEAD"); err != nil {
+		return nil, err
+	}
+	for _, path := range cfg.WritePaths {
+		if _, err := os.Lstat(filepath.Join(cfg.Workspace, path)); errors.Is(err, os.ErrNotExist) {
+			if _, trackedErr := run("ls-files", "--error-unmatch", "--", path); trackedErr != nil {
+				continue
+			}
 		} else if err != nil {
 			return nil, err
 		}
-		cmd := exec.CommandContext(ctx, "git", "diff", "--no-index", "--binary", "--", "/dev/null", p)
-		cmd.Dir = cfg.Workspace
-		b, err := cmd.Output()
-		var exit *exec.ExitError
-		if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
+		if _, err := run("add", "--all", "--force", "--", path); err != nil {
 			return nil, err
 		}
-		patch = append(patch, b...)
 	}
-	return patch, nil
+	return run("diff", "--cached", "--binary", "HEAD")
 }
 
 // Recheck the whole workspace, including new files, at verification and review.
 func scopeUnchanged(ctx context.Context, cfg Config, sha string) (bool, error) {
+	return scopeUnchangedWithArtifacts(ctx, cfg, sha, nil)
+}
+
+func scopeUnchangedWithArtifacts(ctx context.Context, cfg Config, sha string, artifacts map[string]ControllerArtifact) (bool, error) {
 	changedPaths, err := gitOutput(ctx, cfg.Workspace, "diff", "--name-only", "-z", sha)
 	if err != nil {
 		return false, err
 	}
-	untracked, err := gitOutput(ctx, cfg.Workspace, "ls-files", "--others", "--exclude-standard", "-z")
+	untracked, err := gitOutput(ctx, cfg.Workspace, "ls-files", "--others", "-z")
 	if err != nil {
 		return false, err
 	}
 	scopeOK := true
+	for path, want := range artifacts {
+		identity, err := fileIdentity(filepath.Join(cfg.Workspace, path))
+		if err != nil || identity != want.FileIdentity {
+			return false, errors.New("controller artifact changed after verification")
+		}
+	}
 	allowed := map[string]bool{}
 	for _, p := range cfg.WritePaths {
 		allowed[p] = true
 	}
 	for _, p := range strings.Split(string(append(changedPaths, untracked...)), "\x00") {
-		if p != "" && !allowed[p] {
+		if p != "" && !allowed[p] && artifacts[p].SHA256 == "" {
 			scopeOK = false
 		}
 	}
