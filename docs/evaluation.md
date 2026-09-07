@@ -173,3 +173,51 @@ resets, out-of-order observations, invalid JSON, inconsistent counts and lines o
 16 MiB fail instead of producing a plausible total. A partially written final
 record also fails; retry after it has been written. The local Codex event shape
 must match the supported fields; this command does not infer missing categories.
+
+## Offline effort and verified landing
+
+`fanisi import-effort STUDY_DIR RECORD.json` appends a version 1 effort record.
+Required fields: `schema_version`, `id`, `study`, `role`, `source_fingerprint`,
+RFC3339 `from` and `to`, `coverage` (`complete` or `partial`), and `allocation`.
+`exclusive` allocation requires `task` and a study-relative `attempt` directory;
+`study` allocation keeps shared `preparation` or `tooling` separately reported.
+Other roles are `coordinator` and `reviewer`. Optional `cost_usd`, `active_seconds`
+and `tokens` remain null when unknown. Token input includes cached input and
+output includes reasoning; `total_tokens` must equal input plus output.
+Repeated identical imports are idempotent. Conflicting identities and overlapping
+intervals from the same source are rejected. Use one stable source fingerprint
+for a source's attribution windows; snapshots from different source versions
+cannot establish non-overlap automatically. Concurrent imports fail on a lock;
+retry after the owner finishes. A crashed importer may leave the lock directory.
+
+`fanisi import-coordinator STUDY_DIR ATTRIBUTION.json COORDINATOR.json` reads the
+existing `coordinator-usage` output directly and fills its source, window, tokens,
+and nullable price into the attribution record. Cumulative observation coverage
+remains partial. No transcript parsing, provider calls or price inference occurs.
+
+`fanisi import-landing ATTEMPT_DIR RECORD.json` checks a version 1 record with
+`id`, `repository` (local Git repository), full `target_base` and `merge_commit`
+SHAs, `review_record` filename, `patch_sha256`, `merge_evidence` and optional `at`.
+The repository must be the evaluated Git repository. A temporary index rebuilds
+the reviewed candidate and exact scoped blob/mode deltas must match the landing.
+Equivalent squash/rebase content works; intervening edits to scoped baselines
+require fresh verification and review. Open PRs and ancestry alone prove nothing.
+This command records evidence; it never merges. A correction is a new record;
+revoke old evidence by appending an `id`, `revokes`, `schema_version` and
+`merge_evidence`. Revocations are permanent, preserving prior evidence.
+
+`report` retains historical `arms` fields and adds `effort` and `delivery`.
+Historical `tasks_accepted` means patch review, not landed benchmark acceptance.
+Use `delivery.accepted_landed_tasks` for that denominator: task identity deduplicates
+repairs and alternatives, and `repair_from` marks assisted acceptance. Every
+attempt, including failures, contributes. Delivery receipts deduplicate provider
+plus generation identity and reject inconsistent token subsets; historical
+aggregate-only receipts retain their cost lower bound with incomplete coverage.
+No harness estimate is added to settled receipts. Imported effort costs join the
+known lower bound; missing coordination/review coverage means total cost and
+cost per autonomous acceptance remain null. Review durations and imported reviewer
+active time are separate measurements; do not add them together for the same work.
+Elapsed request-to-landing spans use earliest request and landing timestamps,
+never summed overlapping intervals. Missing timestamps omit that task's elapsed
+value; CI wait remains explicitly null. Study tooling costs have no implicit
+amortization. These records do not rank models or establish total-dollar savings.
