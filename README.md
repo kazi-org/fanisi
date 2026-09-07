@@ -71,9 +71,9 @@ review and tests that detect the original defect remain part of acceptance.
 
 ## Tools and completion
 
-The model can search scoped files, read bounded slices, replace one exact unique anchor, create an
-explicitly scoped new file, run the configured formatter, and run the configured
-verifier. No general model-authored shell tool is exposed.
+The model can search scoped files, read bounded slices, replace one exact unique
+anchor, create an explicitly scoped new file, run the configured formatter, and
+run the configured verifier. No general model-authored shell tool is exposed.
 
 Search finds a literal string in one readable file and returns bounded matching
 lines with a continuation cursor. It reads at most 2 MiB and does not execute
@@ -91,8 +91,9 @@ All tool calls in a response are processed before deciding to finish. Model pros
 alone does not establish completion. Run failures retain their evidence.
 
 These are tool boundaries, not an operating-system sandbox. The trusted verifier
-executes repository code locally. Other editors do not honor Fanisi's lock, and
-The evaluation runner detects tracked and untracked changes outside scope after execution; the standalone run command does not provide that repository-wide check.
+executes repository code locally. Other editors do not honor Fanisi's lock.
+The evaluation runner detects tracked and untracked changes outside scope after
+execution; the standalone run command does not provide that repository-wide check.
 
 ## Inspect usage and evidence
 
