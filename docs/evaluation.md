@@ -49,8 +49,9 @@ Ignored build outputs and the rest of the host filesystem are not sealed.
 
 ## Claude isolation and limits
 
-Claude uses a private configuration directory, process-local OpenRouter auth,
-explicit model selection, no inherited credentials, no hooks, no MCP servers,
+Claude uses a scratch home and configuration directory, process-local OpenRouter
+auth, explicit model selection, scrubbed credential variables, no inherited Git
+configuration or SSH agent socket, no hooks, no MCP servers,
 and no session persistence. Existing subscription sessions and configuration
 files remain untouched. Claude retains a general shell and file tools, unlike
 Fanisi's scoped tools. Protect sensitive host files through an external sandbox

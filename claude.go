@@ -19,12 +19,15 @@ func claudeEnvironment(inherited []string, key, config string) []string {
 	for _, entry := range inherited {
 		name, _, _ := strings.Cut(entry, "=")
 		upper := strings.ToUpper(name)
-		if strings.Contains(upper, "KEY") || strings.Contains(upper, "TOKEN") || strings.HasPrefix(upper, "ANTHROPIC_") || strings.HasPrefix(upper, "CLAUDE") {
+		if upper == "HOME" || upper == "SSH_AUTH_SOCK" || upper == "SSH_AGENT_PID" || upper == "DOCKER_CONFIG" || upper == "KUBECONFIG" ||
+			strings.HasPrefix(upper, "XDG_") || strings.HasPrefix(upper, "GIT_") || strings.HasPrefix(upper, "GH_") || strings.HasPrefix(upper, "GITHUB_") ||
+			strings.HasPrefix(upper, "AWS_") || strings.HasPrefix(upper, "AZURE_") || strings.HasPrefix(upper, "GOOGLE_") || strings.HasPrefix(upper, "CLOUDSDK_") ||
+			strings.Contains(upper, "SECRET") || strings.Contains(upper, "PASSWORD") || strings.Contains(upper, "CREDENTIAL") || strings.Contains(upper, "KEY") || strings.Contains(upper, "TOKEN") || strings.HasPrefix(upper, "ANTHROPIC_") || strings.HasPrefix(upper, "CLAUDE") {
 			continue
 		}
 		env = append(env, entry)
 	}
-	env = append(env, "ANTHROPIC_BASE_URL=https://openrouter.ai/api", "ANTHROPIC_AUTH_TOKEN="+key, "ANTHROPIC_API_KEY=", "CLAUDE_CONFIG_DIR="+config, "CLAUDE_SECURESTORAGE_CONFIG_DIR="+config, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
+	env = append(env, "HOME="+config, "XDG_CONFIG_HOME="+config, "GH_CONFIG_DIR="+config, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "ANTHROPIC_BASE_URL=https://openrouter.ai/api", "ANTHROPIC_AUTH_TOKEN="+key, "ANTHROPIC_API_KEY=", "CLAUDE_CONFIG_DIR="+config, "CLAUDE_SECURESTORAGE_CONFIG_DIR="+config, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 	for _, name := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"} {
 		env = append(env, name+"="+model)
 	}

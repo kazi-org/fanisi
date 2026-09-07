@@ -11,19 +11,19 @@ import (
 
 func TestClaudeEnvironmentIsolatesCredentials(t *testing.T) {
 	t.Parallel()
-	inherited := []string{"PATH=/bin", "HOME=/home/operator", "ANTHROPIC_API_KEY=subscription-secret", "CLAUDE_CODE_OAUTH_TOKEN=subscription-token", "OPENROUTER_API_KEY=another-key", "CLAUDE_CONFIG_DIR=/live/config", "CLAUDECODE=1"}
+	inherited := []string{"PATH=/bin", "HOME=/home/operator", "XDG_CONFIG_HOME=/live/xdg", "GH_CONFIG_DIR=/live/gh", "SSH_AUTH_SOCK=/live/agent", "GIT_CONFIG_GLOBAL=/live/gitconfig", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_VALUE_0=secret-helper", "AWS_SHARED_CREDENTIALS_FILE=/live/aws", "ANTHROPIC_API_KEY=subscription-secret", "CLAUDE_CODE_OAUTH_TOKEN=subscription-token", "OPENROUTER_API_KEY=another-key", "CLAUDE_CONFIG_DIR=/live/config", "CLAUDECODE=1"}
 	env := strings.Join(claudeEnvironment(inherited, "test-router-key", "/isolated/config"), "\n")
-	for _, forbidden := range []string{"subscription-secret", "subscription-token", "another-key", "/live/config", "CLAUDECODE="} {
+	for _, forbidden := range []string{"subscription-secret", "subscription-token", "another-key", "/live/config", "CLAUDECODE=", "/home/operator", "/live/", "SSH_AUTH_SOCK=", "GIT_CONFIG_COUNT=", "secret-helper"} {
 		if strings.Contains(env, forbidden) {
 			t.Fatalf("inherited auth/session setting leaked: %s", forbidden)
 		}
 	}
-	for _, required := range []string{"HOME=/home/operator", "ANTHROPIC_API_KEY=\n", "ANTHROPIC_AUTH_TOKEN=test-router-key", "ANTHROPIC_DEFAULT_HAIKU_MODEL=" + model, "CLAUDE_CONFIG_DIR=/isolated/config"} {
+	for _, required := range []string{"HOME=/isolated/config", "XDG_CONFIG_HOME=/isolated/config", "GH_CONFIG_DIR=/isolated/config", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "ANTHROPIC_API_KEY=\n", "ANTHROPIC_AUTH_TOKEN=test-router-key", "ANTHROPIC_DEFAULT_HAIKU_MODEL=" + model, "CLAUDE_CONFIG_DIR=/isolated/config"} {
 		if !strings.Contains(env, required) {
 			t.Fatalf("missing isolated configuration: %s", required)
 		}
 	}
-	if inherited[2] != "ANTHROPIC_API_KEY=subscription-secret" {
+	if inherited[1] != "HOME=/home/operator" {
 		t.Fatal("modified caller environment")
 	}
 }
@@ -64,8 +64,10 @@ func TestEvaluationUsesFrozenWorktreeAndIndependentVerifier(t *testing.T) {
 	if err := os.WriteFile(key, []byte("OPENROUTER_API_KEY=fixture-only\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("GH_CONFIG_DIR", filepath.Join(root, "live-gh"))
+	t.Setenv("SSH_AUTH_SOCK", filepath.Join(root, "live-agent"))
 	// This executable is an offline test double; no API or real Claude process runs.
-	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\ncat >/dev/null\nprintf 'new\\n' > value.txt\nprintf '{\"type\":\"result\",\"is_error\":false}\\n'\n"), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n[ \"$HOME\" = \"$CLAUDE_CONFIG_DIR\" ] || exit 21\n[ \"$GH_CONFIG_DIR\" = \"$CLAUDE_CONFIG_DIR\" ] || exit 22\n[ -z \"${SSH_AUTH_SOCK+x}\" ] || exit 23\n[ \"$GIT_CONFIG_GLOBAL\" = /dev/null ] || exit 24\ncat >/dev/null\nprintf 'new\\n' > value.txt\nprintf '{\"type\":\"result\",\"is_error\":false}\\n'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
