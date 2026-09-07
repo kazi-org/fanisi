@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -26,7 +27,7 @@ def main():
 
     def cli(*argv, reject=False):
         nonlocal checks
-        result = subprocess.run([binary, *map(str, argv)], capture_output=True, text=True)
+        result = subprocess.run([binary, *map(str, argv)], capture_output=True, text=True, timeout=60)
         if reject:
             if result.returncode == 0:
                 raise AssertionError(f"command accepted invalid evidence: {argv[0]}")
@@ -46,7 +47,11 @@ def main():
             path.mkdir()
 
         def git(*argv):
-            return subprocess.check_output(["git", "-C", str(repo), *argv], stderr=subprocess.PIPE)
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+            env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+            return subprocess.check_output(["git", "-c", "core.hooksPath=" + os.devnull,
+                                            "-c", "commit.gpgsign=false", "-C", str(repo), *argv],
+                                           stderr=subprocess.PIPE, env=env, timeout=30)
 
         git("init", "--initial-branch=main")
         git("config", "user.name", "Synthetic reviewer")

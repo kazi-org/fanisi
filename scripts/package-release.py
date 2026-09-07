@@ -36,7 +36,7 @@ def main():
             env = dict(os.environ, GOOS=target_os, GOARCH=arch, CGO_ENABLED="0")
             subprocess.run(["go", "build", "-trimpath", "-buildvcs=true", "-ldflags",
                             f"-s -w -X main.version={args.version}", "-o", str(binary), "."],
-                           cwd=source, env=env, check=True)
+                           cwd=source, env=env, check=True, timeout=300)
             info = {"version": args.version, "source_commit": commit, "toolchain": toolchain,
                     "goos": target_os, "goarch": arch, "cgo_enabled": False}
             archive = output / f"fanisi_{args.version}_{target_os}_{arch}.tar.gz"
