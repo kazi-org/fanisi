@@ -429,3 +429,58 @@ func TestInstalledKaziEvaluation(t *testing.T) {
 		})
 	}
 }
+
+func TestKaziExplicitCancellationKillsActiveWorker(t *testing.T) {
+	e, path := kaziFixture(t, "valid-timeout")
+	var cfg Config
+	if err := readJSON(e.TaskConfig, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.MaxSeconds = 60
+	if err := writeJSON(e.TaskConfig, cfg); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- evalRun(ctx, path, "kazi-claude", 1) }()
+	pidPath := filepath.Join(filepath.Dir(e.TaskConfig), "worker.pid")
+	until := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(pidPath); err == nil {
+			break
+		}
+		if time.Now().After(until) {
+			cancel()
+			t.Fatal("worker did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	started := time.Now()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(7 * time.Second):
+		t.Fatal("parent cancellation ignored")
+	}
+	if time.Since(started) > 7*time.Second {
+		t.Fatal("cancellation exceeded cleanup grace")
+	}
+	for _, name := range []string{"worker.pid", "child.pid"} {
+		raw, err := os.ReadFile(filepath.Join(filepath.Dir(e.TaskConfig), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		until := time.Now().Add(time.Second)
+		for syscall.Kill(pid, 0) == nil && time.Now().Before(until) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if syscall.Kill(pid, 0) == nil {
+			t.Fatalf("cancelled worker survives: %s", name)
+		}
+	}
+}
