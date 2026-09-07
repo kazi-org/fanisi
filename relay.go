@@ -6,14 +6,17 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -77,9 +80,9 @@ func relayHandler(target *url.URL, key, token, output string, transport http.Rou
 			return
 		}
 		id := count.Add(1)
-		record := map[string]any{"request": id, "started_at": time.Now().UTC(), "model": model, "provider": "Z.AI", "request_bytes": len(body)}
+		record := map[string]any{"request": id, "started_at": time.Now().UTC(), "model": model, "provider": "Z.AI", "request_bytes": len(body), "stream_complete": false}
 		path := filepath.Join(output, "relay-request-"+strconv.FormatUint(id, 10)+".json")
-		if err := writeJSON(path, record); err != nil {
+		if err := writeRelayMetadata(path, record); err != nil {
 			http.Error(w, "cannot record relay request", http.StatusInternalServerError)
 			return
 		}
@@ -99,14 +102,39 @@ func relayHandler(target *url.URL, key, token, output string, transport http.Rou
 			ModifyResponse: func(resp *http.Response) error {
 				record["status_code"] = resp.StatusCode
 				record["headers_at"] = time.Now().UTC()
-				return writeJSON(path, record)
+				if strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+					var ids []string
+					resp.Body = &generationStream{ReadCloser: resp.Body, onID: func(id string) error {
+						ids = append(ids, id)
+						record["generation_ids"] = ids
+						record["stream_complete"] = false
+						return writeRelayMetadata(path, record)
+					}, onStop: func() error { record["stream_complete"] = true; return writeRelayMetadata(path, record) }}
+				}
+				return writeRelayMetadata(path, record)
 			},
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 				record["transport_error"] = true
-				_ = writeJSON(path, record)
+				_ = writeRelayMetadata(path, record)
 				http.Error(w, "upstream request failed; inspect receipt coverage", http.StatusBadGateway)
 			},
 		}
 		proxy.ServeHTTP(w, r)
 	})
+}
+
+// Readers may inspect progress while IDs and completion state arrive. Replace
+// the small metadata object atomically so they never read half a JSON document.
+func writeRelayMetadata(path string, record any) error {
+	file, err := os.CreateTemp(filepath.Dir(path), ".relay-metadata-")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	encodeErr := json.NewEncoder(file).Encode(record)
+	closeErr := file.Close()
+	if err := errors.Join(encodeErr, closeErr); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), path)
 }
