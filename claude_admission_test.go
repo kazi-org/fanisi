@@ -9,10 +9,12 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func fixtureAdmission() *ClaudeAdmission {
@@ -218,5 +220,168 @@ func TestAdmissionAbsentPreservesLegacyRelay(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "claude-admission.json")); !os.IsNotExist(err) {
 		t.Fatal("absent block created admission ledger")
+	}
+}
+
+func TestInstalledAdmissionBudget(t *testing.T) {
+	binary, controller := os.Getenv("FANISI_E77_CANDIDATE_BINARY"), os.Getenv("FANISI_E77_KAZI_BINARY")
+	if binary == "" || controller == "" {
+		t.Skip("explicit isolated Fanisi/Kazi binaries required")
+	}
+	for _, variant := range []string{"claude", "kazi-claude", "legacy_bridge"} {
+		t.Run(variant, func(t *testing.T) {
+			arm := variant
+			if variant == "legacy_bridge" {
+				arm = "kazi-claude"
+				if os.Getenv("FANISI_E77_LEGACY_BINARY") == "" {
+					t.Skip("explicit old bridge binary required")
+				}
+			}
+			e, path := kaziFixture(t, "admission")
+			raw, err := os.ReadFile(controller)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bin := filepath.Dir(e.Kazi.Executable)
+			e.Kazi.Executable = controller
+			e.Kazi.ExecutableSHA = digest(raw)
+			e.Kazi.FanisiExecutable = binary
+			if variant == "legacy_bridge" {
+				e.Kazi.FanisiExecutable = os.Getenv("FANISI_E77_LEGACY_BINARY")
+			}
+			e.ClaudeAdmission = fixtureAdmission()
+			worker := `#!/bin/sh
+cat >/dev/null
+count=25
+case "$HOME" in *dispatch-*) count=13;; esac
+i=0
+while [ "$i" -lt "$count" ]; do
+ curl --noproxy '*' -s -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN" -H 'Content-Type: application/json' -d '{"model":"z-ai/glm-5.3-flash","max_tokens":8192,"messages":[{"role":"user","content":"offline fixture"}]}' "$ANTHROPIC_BASE_URL/v1/messages" >/dev/null || exit 9
+ i=$((i+1))
+done
+case "$HOME" in *dispatch-0001*) exit 7;; esac
+printf 'new\n' > value.txt
+printf '{"type":"result","is_error":false}\n'
+`
+			if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(worker), 0700); err != nil {
+				t.Fatal(err)
+			}
+			var cfg Config
+			if err := readJSON(e.TaskConfig, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			cfg.MaxSeconds = 30
+			if err := writeJSON(e.TaskConfig, cfg); err != nil {
+				t.Fatal(err)
+			}
+			if err := writeJSON(path, e); err != nil {
+				t.Fatal(err)
+			}
+			var calls atomic.Int32
+			// The proxy rejects CONNECT before any TLS/provider connection. A transport
+			// failure still consumes admission; this never contacts a provider endpoint.
+			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodConnect {
+					t.Error("unexpected proxy request")
+				}
+				calls.Add(1)
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}))
+			defer proxy.Close()
+			t.Setenv("HTTPS_PROXY", proxy.URL)
+			t.Setenv("NO_PROXY", "localhost,127.0.0.1")
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
+			out, err := exec.CommandContext(ctx, binary, "eval", "--config", path, "--arm", arm, "--attempt", "1").CombinedOutput()
+			if variant == "legacy_bridge" {
+				if err == nil || calls.Load() != 0 {
+					t.Fatalf("old bridge escaped admission handshake: err=%v forwarded=%d", err, calls.Load())
+				}
+				return
+			}
+			if err != nil && arm == "claude" {
+				t.Fatalf("installed admission run: %v %s", err, out)
+			}
+			if err != nil {
+				t.Logf("controller execution ended with %v; independently checking final candidate", err)
+			}
+			if calls.Load() != 24 {
+				t.Fatalf("installed run forwarded %d attempts, want24", calls.Load())
+			}
+			root := filepath.Join(e.Output, e.TaskID, arm, "1")
+			var attempt Attempt
+			if err := readJSON(filepath.Join(root, "attempt.json"), &attempt); err != nil {
+				t.Fatal(err)
+			}
+			if attempt.Status != "verified_pending_review" {
+				t.Fatal("independent lifecycle missing")
+			}
+			dirs := []string{root}
+			wantEach := 24
+			if arm == "kazi-claude" {
+				var manifest DispatchManifest
+				if err := readJSON(filepath.Join(root, "dispatch-manifest.json"), &manifest); err != nil {
+					t.Fatal(err)
+				}
+				if manifest.TotalRequests != 24 || len(manifest.Dispatches) != 2 || manifest.Dispatches[0].Error == "" {
+					t.Fatal("failed request/dispatch reservation missing")
+				}
+				dirs = nil
+				wantEach = 12
+				for _, dispatch := range manifest.Dispatches {
+					if dispatch.ReservedRequests != 12 {
+						t.Fatal("dispatch reservation reset")
+					}
+					dirs = append(dirs, filepath.Join(root, dispatch.Directory))
+				}
+			}
+			for _, dir := range dirs {
+				var evidence AdmissionEvidence
+				if err := readJSON(filepath.Join(dir, "claude-admission.json"), &evidence); err != nil {
+					t.Fatal(err)
+				}
+				if evidence.Admitted != wantEach || evidence.Refused != 1 || evidence.Limits.MaxRequests != wantEach {
+					t.Fatalf("wrong admission evidence: %+v", evidence)
+				}
+			}
+		})
+	}
+}
+
+func TestAdmissionRequiresBridgeCapabilityBeforeLaunch(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy_without_block", true: "legacy_with_block"}[enabled], func(t *testing.T) {
+			e, _ := kaziFixture(t, "success")
+			var cfg Config
+			if err := readJSON(e.TaskConfig, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			baseline, err := workspaceInventory(e.Repository)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := &evaluationSupervisor{cfg: cfg, baseline: baseline, base: e.Base, output: t.TempDir(), manifest: DispatchManifest{SchemaVersion: 1, MaxDispatches: 2, Deadline: time.Now().Add(time.Minute), TotalTurns: 5, TotalCost: 2, TotalRequests: 24, Dispatches: []DispatchRecord{}}}
+			if enabled {
+				s.options.Admission = fixtureAdmission()
+			}
+			endpoint, token, closeServer, err := startSupervisor(context.Background(), s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer closeServer()
+			request, _ := http.NewRequest(http.MethodPost, endpoint+"/start", bytes.NewBufferString(`{}`))
+			request.Header.Set("Authorization", "Bearer "+token)
+			response, err := http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			if enabled && (response.StatusCode != 409 || len(s.manifest.Dispatches) != 0) {
+				t.Fatal("old bridge admitted before capability validation")
+			}
+			if !enabled && (response.StatusCode != 200 || len(s.manifest.Dispatches) != 1) {
+				t.Fatal("absent block broke legacy bridge")
+			}
+		})
 	}
 }

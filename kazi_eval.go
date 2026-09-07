@@ -190,6 +190,20 @@ func startSupervisor(ctx context.Context, s *evaluationSupervisor) (string, stri
 			return
 		}
 		if r.URL.Path == "/start" {
+			var request struct {
+				Protocol int `json:"admission_protocol"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 16384)).Decode(&request); err != nil {
+				http.Error(w, "invalid bridge handshake", 400)
+				return
+			}
+			if s.options.Admission != nil && request.Protocol != 1 {
+				s.mu.Lock()
+				s.manifest.Rejected++
+				s.mu.Unlock()
+				http.Error(w, "bridge does not support required request admission", 409)
+				return
+			}
 			a, err := s.start()
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusConflict)

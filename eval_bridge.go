@@ -46,7 +46,7 @@ func admissionRequest(ctx context.Context, path string, payload any, target any)
 
 func evaluationBridge(ctx context.Context, args []string) (runErr error) {
 	var admission dispatchAdmission
-	if err := admissionRequest(ctx, "/start", struct{}{}, &admission); err != nil {
+	if err := admissionRequest(ctx, "/start", map[string]int{"admission_protocol": 1}, &admission); err != nil {
 		return err
 	}
 	defer func() {
