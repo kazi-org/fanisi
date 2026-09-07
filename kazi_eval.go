@@ -30,16 +30,18 @@ type KaziEvaluation struct {
 }
 
 type DispatchRecord struct {
-	Directory     string                        `json:"directory"`
-	AdmittedAt    time.Time                     `json:"admitted_at"`
-	FinishedAt    *time.Time                    `json:"finished_at"`
-	ReservedTurns int                           `json:"reserved_turns"`
-	ReservedCost  float64                       `json:"reserved_cli_estimated_cost_usd"`
-	Error         string                        `json:"error,omitempty"`
-	Artifacts     map[string]ControllerArtifact `json:"artifacts"`
+	ReservedRequests int                           `json:"reserved_requests,omitempty"`
+	Directory        string                        `json:"directory"`
+	AdmittedAt       time.Time                     `json:"admitted_at"`
+	FinishedAt       *time.Time                    `json:"finished_at"`
+	ReservedTurns    int                           `json:"reserved_turns"`
+	ReservedCost     float64                       `json:"reserved_cli_estimated_cost_usd"`
+	Error            string                        `json:"error,omitempty"`
+	Artifacts        map[string]ControllerArtifact `json:"artifacts"`
 }
 
 type DispatchManifest struct {
+	TotalRequests  int              `json:"total_request_allowance,omitempty"`
 	SchemaVersion  int              `json:"schema_version"`
 	MaxDispatches  int              `json:"max_dispatches"`
 	Deadline       time.Time        `json:"deadline"`
@@ -117,6 +119,16 @@ func (s *evaluationSupervisor) start() (dispatchAdmission, error) {
 	cfg.MaxCost = s.manifest.TotalCost / float64(s.manifest.MaxDispatches)
 	dir := fmt.Sprintf("dispatch-%04d", slot)
 	record := DispatchRecord{Directory: dir, AdmittedAt: time.Now().UTC(), ReservedTurns: cfg.MaxCalls, ReservedCost: cfg.MaxCost, Artifacts: artifacts}
+	options := s.options
+	if options.Admission != nil {
+		limits := *options.Admission
+		limits.MaxRequests = s.manifest.TotalRequests / s.manifest.MaxDispatches
+		if slot == s.manifest.MaxDispatches {
+			limits.MaxRequests += s.manifest.TotalRequests % s.manifest.MaxDispatches
+		}
+		options.Admission = &limits
+		record.ReservedRequests = limits.MaxRequests
+	}
 	// Persist the reservation before launch: even setup failures consume a slot.
 	s.manifest.Dispatches = append(s.manifest.Dispatches, record)
 	if err := os.Mkdir(filepath.Join(s.output, dir), 0700); err != nil {
@@ -127,7 +139,7 @@ func (s *evaluationSupervisor) start() (dispatchAdmission, error) {
 		return dispatchAdmission{}, err
 	}
 	s.active = slot
-	return dispatchAdmission{slot, cfg, filepath.Join(s.output, dir), s.options, s.manifest.Deadline}, nil
+	return dispatchAdmission{slot, cfg, filepath.Join(s.output, dir), options, s.manifest.Deadline}, nil
 }
 
 func (s *evaluationSupervisor) finish(slot int, runError string) error {
@@ -284,7 +296,10 @@ func runKazi(ctx context.Context, e Evaluation, cfg Config, output string, promp
 		return err
 	}
 	cfg.MaxCost = e.ClaudeMaxEstimatedCost
-	supervisor := &evaluationSupervisor{baseline: baseline, base: e.Base, cfg: cfg, kazi: k, output: output, options: ClaudeOptions{e.ClaudeMaxOutputTokens, e.ClaudeProvider}, manifest: DispatchManifest{SchemaVersion: 1, MaxDispatches: k.MaxDispatches, Deadline: time.Now().UTC().Add(time.Duration(cfg.MaxSeconds) * time.Second), TotalTurns: cfg.MaxCalls, TotalCost: cfg.MaxCost, Dispatches: []DispatchRecord{}, Notes: []string{"Direct Claude uses one session; Kazi may use up to two. Dispatch reservations are not refunded, including unsuccessful launches.", "Claude turns and CLI dollar estimates are not provider request, input-token or invoice ceilings."}}}
+	supervisor := &evaluationSupervisor{baseline: baseline, base: e.Base, cfg: cfg, kazi: k, output: output, options: ClaudeOptions{MaxOutputTokens: e.ClaudeMaxOutputTokens, Provider: e.ClaudeProvider, Admission: e.ClaudeAdmission}, manifest: DispatchManifest{SchemaVersion: 1, MaxDispatches: k.MaxDispatches, Deadline: time.Now().UTC().Add(time.Duration(cfg.MaxSeconds) * time.Second), TotalTurns: cfg.MaxCalls, TotalCost: cfg.MaxCost, Dispatches: []DispatchRecord{}, Notes: []string{"Direct Claude uses one session; Kazi may use up to two. Dispatch reservations are not refunded, including unsuccessful launches.", "Claude turns and CLI dollar estimates are not provider request, input-token or invoice ceilings."}}}
+	if e.ClaudeAdmission != nil {
+		supervisor.manifest.TotalRequests = e.ClaudeAdmission.MaxRequests
+	}
 	if deadline, ok := ctx.Deadline(); ok && deadline.Before(supervisor.manifest.Deadline) {
 		supervisor.manifest.Deadline = deadline
 	}
