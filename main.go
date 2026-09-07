@@ -109,6 +109,18 @@ func mainContext(ctx context.Context, args []string) error {
 			return err
 		}
 		return recordReview(ctx, *dir, *decision, *reviewer, *kind, *seconds, string(notes))
+	case "import-landing":
+		if len(args) == 3 {
+			return importLanding(ctx, args[1], args[2])
+		}
+	case "import-coordinator":
+		if len(args) == 4 {
+			return importEffortSource(args[1], args[2], args[3])
+		}
+	case "import-effort":
+		if len(args) == 3 {
+			return importEffort(args[1], args[2])
+		}
 	case "report":
 		if len(args) == 2 {
 			return report(args[1], os.Stdout)

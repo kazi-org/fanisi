@@ -218,6 +218,14 @@ func report(root string, out io.Writer) error {
 			}
 		}
 	}
+	delivery, err := deliveryReport(root, paths)
+	if err != nil {
+		return err
+	}
+	effort, err := effortReport(root)
+	if err != nil {
+		return err
+	}
 	result := []ArmReport{}
 	for arm, row := range rows {
 		row.Tasks = len(tasks[arm])
@@ -242,5 +250,5 @@ func report(root string, out io.Writer) error {
 		result = append(result, *row)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Arm < result[j].Arm })
-	return json.NewEncoder(out).Encode(map[string]any{"schema_version": 1, "arms": result, "notes": []string{"All recorded attempts, including failures, contribute to spend and runtime. Missing receipts keep per-accepted costs unknown.", "Human and agent acceptance are separate. Acceptance is historical for the verified patch, not a claim that it was merged or deployed.", "Summed attempt wall time is not study elapsed time when attempts overlap. Preparation is declared once per task per arm; review effort is only what reviewers recorded.", "Coordinator usage is not included in this report; collect it separately. Provider costs cover the stated receipt boundary, not total project cost."}})
+	return json.NewEncoder(out).Encode(map[string]any{"schema_version": 1, "arms": result, "effort": effort, "delivery": delivery, "notes": []string{"All recorded attempts, including failures, contribute to spend and runtime. Missing receipts keep per-accepted costs unknown.", "Human and agent acceptance are separate. Acceptance is historical for the verified patch, not a claim that it was merged or deployed.", "Summed attempt wall time is not study elapsed time when attempts overlap. Preparation is declared once per task per arm; review effort is only what reviewers recorded.", "Imported effort appears separately with unknown prices preserved. Provider costs cover the stated receipt boundary, not total project cost."}})
 }

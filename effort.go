@@ -84,10 +84,17 @@ func loadEfforts(root string) ([]Effort, error) {
 	return records, nil
 }
 
-func importEffort(root, file string) error {
+func importEffort(root, file string) error { return importEffortSource(root, file, "") }
+
+func importEffortSource(root, file, coordinator string) error {
 	var e Effort
 	if err := readStrictJSON(file, &e); err != nil {
 		return err
+	}
+	if coordinator != "" {
+		if err := coordinatorEffort(coordinator, &e); err != nil {
+			return err
+		}
 	}
 	if err := validateEffort(e); err != nil {
 		return err
@@ -104,6 +111,11 @@ func importEffort(root, file string) error {
 			return errors.New("effort task does not match attempt")
 		}
 	}
+	lock := filepath.Join(root, ".effort-import-lock")
+	if err := os.Mkdir(lock, 0700); err != nil {
+		return fmt.Errorf("acquiring effort import lock: %w", err)
+	}
+	defer os.Remove(lock)
 	records, err := loadEfforts(root)
 	if err != nil {
 		return err
@@ -154,4 +166,60 @@ func coordinatorEffort(file string, e *Effort) error {
 	e.Role = "coordinator"
 	e.Coverage = "partial"
 	return validateEffort(*e)
+}
+
+type EffortTotal struct {
+	Records         int      `json:"records"`
+	Input           int64    `json:"input_tokens"`
+	Cached          int64    `json:"cached_input_tokens"`
+	Output          int64    `json:"output_tokens"`
+	Reasoning       int64    `json:"reasoning_output_tokens"`
+	KnownCost       float64  `json:"known_cost_usd"`
+	Cost            *float64 `json:"total_cost_usd"`
+	UnknownPrices   int      `json:"records_without_price"`
+	ActiveSeconds   float64  `json:"known_active_seconds"`
+	UnknownDuration int      `json:"records_without_duration"`
+}
+
+func effortReport(root string) (map[string]*EffortTotal, error) {
+	records, err := loadEfforts(root)
+	if err != nil {
+		return nil, err
+	}
+	totals := map[string]*EffortTotal{}
+	for _, e := range records {
+		key := e.Role
+		if e.Allocation == "study" {
+			key = "study_" + key
+		}
+		r := totals[key]
+		if r == nil {
+			r = &EffortTotal{}
+			totals[key] = r
+		}
+		r.Records++
+		if e.Tokens != nil {
+			r.Input += e.Tokens.Input
+			r.Cached += e.Tokens.Cached
+			r.Output += e.Tokens.Output
+			r.Reasoning += e.Tokens.Reasoning
+		}
+		if e.Cost == nil {
+			r.UnknownPrices++
+		} else {
+			r.KnownCost += *e.Cost
+		}
+		if e.Seconds == nil {
+			r.UnknownDuration++
+		} else {
+			r.ActiveSeconds += *e.Seconds
+		}
+	}
+	for _, r := range totals {
+		if r.UnknownPrices == 0 {
+			cost := r.KnownCost
+			r.Cost = &cost
+		}
+	}
+	return totals, nil
 }
