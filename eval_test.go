@@ -168,14 +168,14 @@ func TestEvaluationUsesFrozenWorktreeAndIndependentVerifier(t *testing.T) {
 	}
 	bridgeOutput := filepath.Join(root, "bridge-dispatches")
 	bridgeArgs := []string{"-p", "controller task", "--model", model, "--output-format", "json"}
-	if err := claudeBridge(ctx, bridgeTask, bridgeOutput, 8192, 2, bridgeArgs); err == nil {
+	if err := claudeBridge(ctx, bridgeTask, bridgeOutput, 8192, 2, "", bridgeArgs); err == nil {
 		t.Fatal("bridge accepted the wrong working directory")
 	}
 	t.Chdir(repair.Workspace)
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\ncat >/dev/null\nprintf '{\"type\":\"result\",\"is_error\":false,\"result\":\"controller fixture\"}\\n'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := claudeBridge(ctx, bridgeTask, bridgeOutput, 8192, 2, bridgeArgs); err != nil {
+	if err := claudeBridge(ctx, bridgeTask, bridgeOutput, 8192, 2, "", bridgeArgs); err != nil {
 		t.Fatal(err)
 	}
 	streams, err := filepath.Glob(filepath.Join(bridgeOutput, "dispatch-*", "claude-stream.jsonl"))
