@@ -62,6 +62,8 @@ func mainContext(ctx context.Context, args []string) error {
 	case "version", "--version":
 		fmt.Println("fanisi", version)
 		return nil
+	case "eval-bridge":
+		return evaluationBridge(ctx, args[1:])
 	case "claude-bridge":
 		fs := flag.NewFlagSet("claude-bridge", flag.ContinueOnError)
 		task := fs.String("config", "", "frozen task configuration")
@@ -79,7 +81,7 @@ func mainContext(ctx context.Context, args []string) error {
 	case "eval":
 		fs := flag.NewFlagSet("eval", flag.ContinueOnError)
 		path := fs.String("config", "", "frozen evaluation configuration")
-		arm := fs.String("arm", "", "fanisi, claude, or claude-packet")
+		arm := fs.String("arm", "", "fanisi, claude, claude-packet, or kazi-claude")
 		attempt := fs.Int("attempt", 1, "unique attempt number")
 		if err := fs.Parse(args[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {

@@ -488,6 +488,10 @@ func bounded(text string, n int) string {
 }
 
 func runCommand(ctx context.Context, root string, argv []string, logPath string) ([]byte, int, error) {
+	return runCommandWithEnv(ctx, root, argv, logPath, nil)
+}
+
+func runCommandWithEnv(ctx context.Context, root string, argv []string, logPath string, extra map[string]string) ([]byte, int, error) {
 	if len(argv) == 0 {
 		return nil, -1, errors.New("empty command")
 	}
@@ -501,6 +505,9 @@ func runCommand(ctx context.Context, root string, argv []string, logPath string)
 			continue
 		}
 		cmd.Env = append(cmd.Env, e)
+	}
+	for name, value := range extra {
+		cmd.Env = append(cmd.Env, name+"="+value)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
