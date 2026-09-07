@@ -36,6 +36,10 @@ const usageText = `fanisi - measured software changes
   fanisi profile RUN_DIRECTORY
   fanisi billing --key-file .env RUN_DIRECTORY
   fanisi analyze CLAUDE_STREAM_JSONL PROVIDER_LEDGER
+  fanisi eval --config evaluation.json --arm fanisi|claude|claude-packet [--attempt 1]
+  fanisi reconcile --key-file .env ATTEMPT_DIRECTORY
+  fanisi review --attempt DIR --decision accept|reject --reviewer NAME --kind human|agent --seconds N --notes-file FILE
+  fanisi report STUDY_DIRECTORY
   fanisi version
 
 Relative config paths resolve beside task.json. Read/write paths resolve in its
@@ -52,6 +56,47 @@ func mainContext(ctx context.Context, args []string) error {
 	case "version", "--version":
 		fmt.Println("fanisi", version)
 		return nil
+	case "eval":
+		fs := flag.NewFlagSet("eval", flag.ContinueOnError)
+		path := fs.String("config", "", "frozen evaluation configuration")
+		arm := fs.String("arm", "", "fanisi, claude, or claude-packet")
+		attempt := fs.Int("attempt", 1, "unique attempt number")
+		if err := fs.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if *path == "" || fs.NArg() != 0 {
+			return errors.New("eval requires --config, --arm and no positional arguments")
+		}
+		return evalRun(ctx, *path, *arm, *attempt)
+	case "review":
+		fs := flag.NewFlagSet("review", flag.ContinueOnError)
+		dir := fs.String("attempt", "", "evaluation attempt directory")
+		decision := fs.String("decision", "", "accept or reject")
+		reviewer := fs.String("reviewer", "", "reviewer identity")
+		kind := fs.String("kind", "", "human or agent")
+		seconds := fs.Float64("seconds", -1, "actual review time in seconds; omit if unmeasured")
+		notesFile := fs.String("notes-file", "", "review findings")
+		if err := fs.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if *dir == "" || *notesFile == "" || fs.NArg() != 0 {
+			return errors.New("review requires --attempt, --notes-file and no positional arguments")
+		}
+		notes, err := os.ReadFile(*notesFile)
+		if err != nil {
+			return err
+		}
+		return recordReview(ctx, *dir, *decision, *reviewer, *kind, *seconds, string(notes))
+	case "report":
+		if len(args) == 2 {
+			return report(args[1], os.Stdout)
+		}
 	case "profile":
 		if len(args) == 2 {
 			return profile(args[1])
@@ -60,6 +105,19 @@ func mainContext(ctx context.Context, args []string) error {
 		if len(args) == 3 {
 			return analyze(args[1], args[2])
 		}
+	case "reconcile":
+		fs := flag.NewFlagSet("reconcile", flag.ContinueOnError)
+		key := fs.String("key-file", "", "OpenRouter key file; otherwise environment")
+		if err := fs.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if fs.NArg() != 1 {
+			return errors.New("reconcile requires one attempt directory")
+		}
+		return reconcile(ctx, fs.Arg(0), *key)
 	case "billing":
 		fs := flag.NewFlagSet("billing", flag.ContinueOnError)
 		key := fs.String("key-file", ".env", "literal OpenRouter key file")
