@@ -15,20 +15,21 @@ import (
 
 // Evaluation names a frozen task once; every arm starts from the same commit.
 type Evaluation struct {
-	Kazi                   *KaziEvaluation `json:"kazi,omitempty"`
-	ClaudeProvider         string          `json:"claude_provider,omitempty"`
-	ClaudeMaxOutputTokens  int             `json:"claude_max_output_tokens,omitempty"`
-	RepairFrom             string          `json:"repair_from,omitempty"`
-	ClaudeMaxEstimatedCost float64         `json:"claude_max_estimated_cost_usd"`
-	SchemaVersion          int             `json:"schema_version"`
-	TaskID                 string          `json:"task_id"`
-	Repository             string          `json:"repository"`
-	Base                   string          `json:"base"`
-	WorktreeRoot           string          `json:"worktree_root"`
-	Output                 string          `json:"output"`
-	TaskConfig             string          `json:"task_config"`
-	ProtectedFiles         []string        `json:"protected_files"`
-	PreparationSeconds     *float64        `json:"preparation_seconds"`
+	ClaudeAdmission        *ClaudeAdmission `json:"claude_admission,omitempty"`
+	Kazi                   *KaziEvaluation  `json:"kazi,omitempty"`
+	ClaudeProvider         string           `json:"claude_provider,omitempty"`
+	ClaudeMaxOutputTokens  int              `json:"claude_max_output_tokens,omitempty"`
+	RepairFrom             string           `json:"repair_from,omitempty"`
+	ClaudeMaxEstimatedCost float64          `json:"claude_max_estimated_cost_usd"`
+	SchemaVersion          int              `json:"schema_version"`
+	TaskID                 string           `json:"task_id"`
+	Repository             string           `json:"repository"`
+	Base                   string           `json:"base"`
+	WorktreeRoot           string           `json:"worktree_root"`
+	Output                 string           `json:"output"`
+	TaskConfig             string           `json:"task_config"`
+	ProtectedFiles         []string         `json:"protected_files"`
+	PreparationSeconds     *float64         `json:"preparation_seconds"`
 }
 
 type Attempt struct {
@@ -85,6 +86,14 @@ func loadEvaluation(path string) (Evaluation, Config, error) {
 	if e.ClaudeProvider != "" && e.ClaudeProvider != "Z.AI" {
 		return e, Config{}, errors.New("Claude provider must be empty or Z.AI")
 	}
+	if e.ClaudeAdmission != nil {
+		if err := e.ClaudeAdmission.validate(); err != nil {
+			return e, Config{}, err
+		}
+		if e.ClaudeProvider != "Z.AI" {
+			return e, Config{}, errors.New("Claude admission requires Z.AI provider routing")
+		}
+	}
 	cfg, err := loadConfig(e.TaskConfig)
 	return e, cfg, err
 }
@@ -140,6 +149,9 @@ func evalRun(ctx context.Context, path, arm string, number int) (runErr error) {
 	if arm == "kazi-claude" {
 		if e.Kazi == nil || e.Kazi.MaxDispatches < 1 || e.Kazi.MaxDispatches > 2 || cfg.MaxCalls < e.Kazi.MaxDispatches || !filepath.IsAbs(e.Kazi.Executable) || e.ClaudeProvider != "Z.AI" || len(e.Kazi.ExecutableSHA) != 64 || e.ClaudeMaxOutputTokens < 1024 {
 			return errors.New("Kazi arm requires pinned executable, 1..2 dispatches and bounded Claude output")
+		}
+		if e.ClaudeAdmission != nil && e.ClaudeAdmission.MaxRequests < e.Kazi.MaxDispatches {
+			return errors.New("request allowance cannot reserve every Kazi dispatch")
 		}
 		for path, hash := range e.Kazi.Artifacts {
 			if !filepath.IsLocal(path) || filepath.Clean(path) != path || strings.Contains(path, "\\") || len(hash) != 64 {
@@ -291,7 +303,7 @@ func evalRun(ctx context.Context, path, arm string, number int) (runErr error) {
 	} else {
 		claudeCfg := cfg
 		claudeCfg.MaxCost = e.ClaudeMaxEstimatedCost
-		runErr = runClaude(workerCtx, claudeCfg, output, prompt, ClaudeOptions{MaxOutputTokens: e.ClaudeMaxOutputTokens, Provider: e.ClaudeProvider})
+		runErr = runClaude(workerCtx, claudeCfg, output, prompt, ClaudeOptions{MaxOutputTokens: e.ClaudeMaxOutputTokens, Provider: e.ClaudeProvider, Admission: e.ClaudeAdmission})
 	}
 	stopWorker()
 	a.ExecutionSeconds = time.Since(executionStart).Seconds()
