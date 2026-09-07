@@ -116,6 +116,11 @@ func reconcile(ctx context.Context, dir, keyPath string) error {
 }
 
 func reconcileWithClient(ctx context.Context, dir, key string, client *http.Client) error {
+	if paths, found, err := dispatchDirectories(dir); err != nil {
+		return err
+	} else if found {
+		return reconcileDispatches(ctx, dir, key, client, paths)
+	}
 	ids, err := generationIDs(dir)
 	if err != nil {
 		return err
