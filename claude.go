@@ -38,11 +38,16 @@ func claudeArguments(cfg Config) []string {
 	return []string{"-p", "--model", model, "--effort", cfg.Reasoning, "--output-format", "stream-json", "--verbose", "--max-budget-usd", strconv.FormatFloat(cfg.MaxCost, 'f', -1, 64), "--max-turns", strconv.Itoa(cfg.MaxCalls), "--permission-mode", "dontAsk", "--tools", "Bash,Read,Edit,Write,Glob,Grep", "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep", "--disable-slash-commands", "--setting-sources", "", "--settings", `{"disableAllHooks":true,"autoMemoryEnabled":false}`, "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--no-session-persistence", "--no-chrome"}
 }
 
-func runClaude(parent context.Context, cfg Config, output string, prompt []byte, maxOutputTokens int) error {
-	return executeClaude(parent, cfg, output, prompt, maxOutputTokens, true)
+type ClaudeOptions struct {
+	MaxOutputTokens int
+	Provider        string
 }
 
-func executeClaude(parent context.Context, cfg Config, output string, prompt []byte, maxOutputTokens int, ownProcessGroup bool) error {
+func runClaude(parent context.Context, cfg Config, output string, prompt []byte, options ClaudeOptions) error {
+	return executeClaude(parent, cfg, output, prompt, options, true)
+}
+
+func executeClaude(parent context.Context, cfg Config, output string, prompt []byte, options ClaudeOptions, ownProcessGroup bool) error {
 	key, err := resolveKey(cfg.KeyFile)
 	if err != nil {
 		return err
@@ -54,7 +59,7 @@ func executeClaude(parent context.Context, cfg Config, output string, prompt []b
 	ctx, cancel := context.WithTimeout(parent, time.Duration(cfg.MaxSeconds)*time.Second)
 	defer cancel()
 	args := claudeArguments(cfg)
-	if err := writeJSON(filepath.Join(output, "claude-invocation.json"), map[string]any{"argv": args, "model": model, "budget_basis": "Claude CLI estimate, not OpenRouter invoice; reconcile generation receipts", "timeout_seconds": cfg.MaxSeconds, "max_output_tokens": maxOutputTokens}); err != nil {
+	if err := writeJSON(filepath.Join(output, "claude-invocation.json"), map[string]any{"argv": args, "model": model, "budget_basis": "Claude CLI estimate, not OpenRouter invoice; reconcile generation receipts", "timeout_seconds": cfg.MaxSeconds, "max_output_tokens": options.MaxOutputTokens, "provider": options.Provider}); err != nil {
 		return err
 	}
 	stdout, err := os.OpenFile(filepath.Join(output, "claude-stream.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -70,8 +75,26 @@ func executeClaude(parent context.Context, cfg Config, output string, prompt []b
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = cfg.Workspace
 	cmd.Env = claudeEnvironment(os.Environ(), key, config)
-	if maxOutputTokens > 0 {
-		cmd.Env = append(cmd.Env, "CLAUDE_CODE_MAX_OUTPUT_TOKENS="+strconv.Itoa(maxOutputTokens))
+	if options.MaxOutputTokens > 0 {
+		cmd.Env = append(cmd.Env, "CLAUDE_CODE_MAX_OUTPUT_TOKENS="+strconv.Itoa(options.MaxOutputTokens))
+	}
+	if options.Provider != "" {
+		if options.Provider != "Z.AI" {
+			return errors.New("unsupported Claude provider")
+		}
+		endpoint, token, closeRelay, err := providerRelay(key, output)
+		if err != nil {
+			return err
+		}
+		defer closeRelay()
+		for i, entry := range cmd.Env {
+			if strings.HasPrefix(entry, "ANTHROPIC_BASE_URL=") {
+				cmd.Env[i] = "ANTHROPIC_BASE_URL=" + endpoint
+			}
+			if strings.HasPrefix(entry, "ANTHROPIC_AUTH_TOKEN=") {
+				cmd.Env[i] = "ANTHROPIC_AUTH_TOKEN=" + token
+			}
+		}
 	}
 	cmd.Stdin = strings.NewReader(string(prompt))
 	cmd.Stdout = stdout

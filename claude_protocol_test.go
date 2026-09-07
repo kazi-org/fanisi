@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,10 +44,20 @@ func TestInstalledClaudeRequestShape(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg := Config{Reasoning: "medium", MaxCost: 1, MaxCalls: 1}
+			endpoint := server.URL
+			if bounded {
+				target, err := url.Parse(server.URL)
+				if err != nil {
+					t.Fatal(err)
+				}
+				relay := httptest.NewServer(relayHandler(target, "offline-provider-key", "offline-fixture-key", dir, http.DefaultTransport))
+				defer relay.Close()
+				endpoint = relay.URL
+			}
 			env := claudeEnvironment(os.Environ(), "offline-fixture-key", config)
 			for i, e := range env {
 				if strings.HasPrefix(e, "ANTHROPIC_BASE_URL=") {
-					env[i] = "ANTHROPIC_BASE_URL=" + server.URL
+					env[i] = "ANTHROPIC_BASE_URL=" + endpoint
 				}
 			}
 			env = append(env, "CLAUDE_CODE_MAX_RETRIES=0")
@@ -77,6 +88,12 @@ func TestInstalledClaudeRequestShape(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Log(string(b))
+			if bounded {
+				provider, ok := req["provider"].(map[string]any)
+				if !ok || provider["allow_fallbacks"] != false {
+					t.Fatal("installed CLI did not reach provider relay")
+				}
+			}
 			if bounded && req["max_tokens"] != float64(8192) {
 				t.Fatal("output cap was not applied")
 			}

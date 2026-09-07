@@ -62,13 +62,14 @@ func mainContext(ctx context.Context, args []string) error {
 		output := fs.String("output", "", "private dispatch artifact directory")
 		cap := fs.Int("max-output-tokens", 0, "explicit per-response output cap")
 		cost := fs.Float64("max-estimated-cost", 0, "explicit CLI-estimated per-dispatch cost cap")
+		provider := fs.String("provider", "", "optional Z.AI provider pin through a private relay")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		if *task == "" || *output == "" {
 			return errors.New("claude-bridge requires --config and --output")
 		}
-		return claudeBridge(ctx, *task, *output, *cap, *cost, fs.Args())
+		return claudeBridge(ctx, *task, *output, *cap, *cost, *provider, fs.Args())
 	case "eval":
 		fs := flag.NewFlagSet("eval", flag.ContinueOnError)
 		path := fs.String("config", "", "frozen evaluation configuration")

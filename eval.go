@@ -15,6 +15,7 @@ import (
 
 // Evaluation names a frozen task once; every arm starts from the same commit.
 type Evaluation struct {
+	ClaudeProvider         string   `json:"claude_provider,omitempty"`
 	ClaudeMaxOutputTokens  int      `json:"claude_max_output_tokens,omitempty"`
 	RepairFrom             string   `json:"repair_from,omitempty"`
 	ClaudeMaxEstimatedCost float64  `json:"claude_max_estimated_cost_usd"`
@@ -78,6 +79,9 @@ func loadEvaluation(path string) (Evaluation, Config, error) {
 	}
 	if e.ClaudeMaxOutputTokens != 0 && (e.ClaudeMaxOutputTokens < 1024 || e.ClaudeMaxOutputTokens > 64000) {
 		return e, Config{}, errors.New("Claude output token cap must be zero (CLI default) or 1024..64000")
+	}
+	if e.ClaudeProvider != "" && e.ClaudeProvider != "Z.AI" {
+		return e, Config{}, errors.New("Claude provider must be empty or Z.AI")
 	}
 	cfg, err := loadConfig(e.TaskConfig)
 	return e, cfg, err
@@ -253,7 +257,7 @@ func evalRun(ctx context.Context, path, arm string, number int) (runErr error) {
 	} else {
 		claudeCfg := cfg
 		claudeCfg.MaxCost = e.ClaudeMaxEstimatedCost
-		runErr = runClaude(ctx, claudeCfg, output, prompt, e.ClaudeMaxOutputTokens)
+		runErr = runClaude(ctx, claudeCfg, output, prompt, ClaudeOptions{MaxOutputTokens: e.ClaudeMaxOutputTokens, Provider: e.ClaudeProvider})
 	}
 	a.ExecutionSeconds = time.Since(executionStart).Seconds()
 	checkStart := time.Now()

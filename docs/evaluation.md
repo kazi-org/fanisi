@@ -61,7 +61,7 @@ when that is a requirement.
 not an OpenRouter invoice or a comparable native Fanisi dollar allowance.
 `claude_max_output_tokens` is optional: zero or absent retains the CLI default;
 1024..64000 sets its per-response output cap through a process-local environment
-variable. Record this as a treatment when comparing results. Both arms inherit
+variable. Record this as a treatment when comparing results. Set `claude_provider` to `"Z.AI"` to pin the same provider as native Fanisi through an authenticated process-local relay; omit it to retain OpenRouter routing. The relay keeps the provider key out of the child process and records request metadata without headers or source bodies. Receipt reconciliation must still confirm actual provider selection. Both arms inherit
 the task's wall-clock and call/turn limits, whose semantics differ by harness.
 The installed CLI's offline request-shape test can check the cap without paid
 inference:
