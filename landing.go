@@ -43,7 +43,7 @@ func verifyLanding(ctx context.Context, dir string, l Landing) error {
 	if err := readJSON(filepath.Join(dir, "attempt.json"), &a); err != nil {
 		return err
 	}
-	if !a.ScopeOK || !a.VerificationPassed || l.Patch != a.PatchSHA {
+	if a.SchemaVersion != schemaVersion || !a.ScopeOK || !a.VerificationPassed || l.Patch != a.PatchSHA {
 		return errors.New("landing requires verified candidate")
 	}
 	if filepath.Base(l.Review) != l.Review || !strings.HasPrefix(l.Review, "review-") {
@@ -53,7 +53,7 @@ func verifyLanding(ctx context.Context, dir string, l Landing) error {
 	if err := readJSON(filepath.Join(dir, l.Review), &r); err != nil {
 		return err
 	}
-	if !l.IndependentReview || strings.TrimSpace(r.Reviewer) == "" || r.Decision != "accept" || r.PatchSHA != a.PatchSHA || (r.Kind != "human" && r.Kind != "agent") {
+	if r.SchemaVersion != 1 || !l.IndependentReview || strings.TrimSpace(r.Reviewer) == "" || r.Decision != "accept" || r.PatchSHA != a.PatchSHA || (r.Kind != "human" && r.Kind != "agent") {
 		return errors.New("landing requires independent accepted review")
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "configuration.json"))

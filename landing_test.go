@@ -58,7 +58,7 @@ func TestLandingContentIdentity(t *testing.T) {
 	if err := writeJSON(filepath.Join(dir, "attempt.json"), a); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeJSON(filepath.Join(dir, "review-one.json"), Review{Reviewer: "external-fixture", Decision: "accept", Kind: "agent", PatchSHA: a.PatchSHA}); err != nil {
+	if err := writeJSON(filepath.Join(dir, "review-one.json"), Review{SchemaVersion: 1, Reviewer: "external-fixture", Decision: "accept", Kind: "agent", PatchSHA: a.PatchSHA}); err != nil {
 		t.Fatal(err)
 	}
 	git("add", ".")
@@ -109,6 +109,8 @@ func TestLandingContentIdentity(t *testing.T) {
 		git("commit", "-m", "changed")
 		bad := l
 		bad.Merge = git("rev-parse", "HEAD")
+		git("branch", "changed-landing", bad.Merge)
+		bad.TargetRef = "refs/heads/changed-landing"
 		if err := verifyLanding(ctx, dir, bad); err == nil {
 			t.Fatal("changed content accepted")
 		}
