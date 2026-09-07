@@ -56,6 +56,19 @@ func mainContext(ctx context.Context, args []string) error {
 	case "version", "--version":
 		fmt.Println("fanisi", version)
 		return nil
+	case "claude-bridge":
+		fs := flag.NewFlagSet("claude-bridge", flag.ContinueOnError)
+		task := fs.String("config", "", "frozen task configuration")
+		output := fs.String("output", "", "private dispatch artifact directory")
+		cap := fs.Int("max-output-tokens", 0, "explicit per-response output cap")
+		cost := fs.Float64("max-estimated-cost", 0, "explicit CLI-estimated per-dispatch cost cap")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *task == "" || *output == "" {
+			return errors.New("claude-bridge requires --config and --output")
+		}
+		return claudeBridge(ctx, *task, *output, *cap, *cost, fs.Args())
 	case "eval":
 		fs := flag.NewFlagSet("eval", flag.ContinueOnError)
 		path := fs.String("config", "", "frozen evaluation configuration")

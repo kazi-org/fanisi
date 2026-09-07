@@ -105,3 +105,25 @@ counted once per task per arm; null means unmeasured. Attempt wall times are
 summed durations, not the elapsed duration of a parallel study. Coordinator
 usage, CI, review, and landing delays need separate accounting before claiming
 an end-to-end productivity improvement.
+
+## Instrument a Kazi Claude dispatch
+
+The experimental `claude-bridge` command accepts Kazi's `-p`, pinned `--model`,
+and `--output-format json` arguments after `--`. A small executable wrapper can
+supply its frozen task, private output directory, and explicit limits:
+
+```sh
+exec /absolute/path/fanisi claude-bridge \
+  --config /absolute/path/task.json --output /private/dispatches \
+  --max-output-tokens 8192 --max-estimated-cost 20 -- "$@"
+```
+
+Set that wrapper as the goal's `[harness] command`. The bridge verifies the
+current working directory, rejects unsupported controller options, preserves
+stricter controller limits, records each dispatch separately, and returns the
+unique original Claude terminal JSON to Kazi. Its subprocess remains in Kazi's
+process group so the controller can terminate descendants. Give the complete
+controller run an external wall-clock deadline; bridge limits apply per dispatch.
+Use an isolated Kazi read-model and a dedicated task worktree. Reconcile every
+dispatch's receipts, including failures, and independently review the final diff.
+The bridge does not itself create an evaluation attempt or an acceptance record.

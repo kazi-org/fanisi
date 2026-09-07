@@ -39,6 +39,10 @@ func claudeArguments(cfg Config) []string {
 }
 
 func runClaude(parent context.Context, cfg Config, output string, prompt []byte, maxOutputTokens int) error {
+	return executeClaude(parent, cfg, output, prompt, maxOutputTokens, true)
+}
+
+func executeClaude(parent context.Context, cfg Config, output string, prompt []byte, maxOutputTokens int, ownProcessGroup bool) error {
 	key, err := resolveKey(cfg.KeyFile)
 	if err != nil {
 		return err
@@ -72,13 +76,15 @@ func runClaude(parent context.Context, cfg Config, output string, prompt []byte,
 	cmd.Stdin = strings.NewReader(string(prompt))
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		if errors.Is(err, syscall.ESRCH) {
-			return os.ErrProcessDone
+	if ownProcessGroup {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error {
+			err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			if errors.Is(err, syscall.ESRCH) {
+				return os.ErrProcessDone
+			}
+			return err
 		}
-		return err
 	}
 	cmd.WaitDelay = 3 * time.Second
 	if err := cmd.Run(); err != nil {

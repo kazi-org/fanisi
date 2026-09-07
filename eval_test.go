@@ -159,6 +159,35 @@ func TestEvaluationUsesFrozenWorktreeAndIndependentVerifier(t *testing.T) {
 	if repair.RepairFrom != dir || repair.BaselineExit != 1 || repair.Status != "verified_pending_review" || repair.PatchSHA == a.PatchSHA {
 		t.Fatalf("invalid repair evidence: %+v", repair)
 	}
+	// The controller bridge runs the same isolated worker and retains its terminal.
+	bridgeCfg := cfg
+	bridgeCfg.Workspace = repair.Workspace
+	bridgeTask := filepath.Join(root, "bridge-task.json")
+	if err := writeJSON(bridgeTask, bridgeCfg); err != nil {
+		t.Fatal(err)
+	}
+	bridgeOutput := filepath.Join(root, "bridge-dispatches")
+	bridgeArgs := []string{"-p", "controller task", "--model", model, "--output-format", "json"}
+	if err := claudeBridge(ctx, bridgeTask, bridgeOutput, 8192, 2, bridgeArgs); err == nil {
+		t.Fatal("bridge accepted the wrong working directory")
+	}
+	t.Chdir(repair.Workspace)
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\ncat >/dev/null\nprintf '{\"type\":\"result\",\"is_error\":false,\"result\":\"controller fixture\"}\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := claudeBridge(ctx, bridgeTask, bridgeOutput, 8192, 2, bridgeArgs); err != nil {
+		t.Fatal(err)
+	}
+	streams, err := filepath.Glob(filepath.Join(bridgeOutput, "dispatch-*", "claude-stream.jsonl"))
+	if err != nil || len(streams) != 1 {
+		t.Fatalf("bridge did not retain one dispatch: %v %v", streams, err)
+	}
+	var terminal struct {
+		Result string `json:"result"`
+	}
+	if found, err := claudeTerminal(streams[0], &terminal); err != nil || !found || terminal.Result != "controller fixture" {
+		t.Fatalf("bridge terminal changed: %+v %v", terminal, err)
+	}
 	e.Base = "HEAD"
 	if err := writeJSON(manifest, e); err != nil {
 		t.Fatal(err)
