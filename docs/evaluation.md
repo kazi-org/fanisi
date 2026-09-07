@@ -84,7 +84,8 @@ Receipt reconciliation deduplicates visible generation IDs and fetches provider
 receipts. The provider relay captures generation IDs from streamed message-start
 events before Claude finishes an assistant message, retaining billing identities
 across interrupted replies without storing response content. Missing relay IDs
-and missing stream-stop events remain explicit coverage gaps. Failed CLI sessions can omit request IDs; their total remains unknown
+and missing stream-stop events remain explicit coverage gaps. Skipped malformed
+or oversized frames also leave coverage unknown, even if a later stop arrives. Failed CLI sessions can omit request IDs; their total remains unknown
 while resolved spend is retained. Reasoning tokens are a subset of output tokens.
 No command turns missing usage into zero or counts a CLI cost estimate as a bill.
 

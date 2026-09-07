@@ -22,7 +22,7 @@ func TestGenerationStreamPreservesFragmentedBytesAndOnlyCapturesIDs(t *testing.T
 	if err != nil || string(got) != input {
 		t.Fatalf("stream changed or EOF corrupted: %v", err)
 	}
-	if unknown != 1 {
+	if unknown != 2 {
 		t.Fatalf("unknown identity was hidden: %d", unknown)
 	}
 	if stops != 2 {
@@ -39,5 +39,21 @@ func TestGenerationStreamSurfacesRecordingFailure(t *testing.T) {
 	_, err := io.ReadAll(reader)
 	if !errors.Is(err, fail) {
 		t.Fatalf("recording failure hidden: %v", err)
+	}
+}
+
+func TestGenerationStreamIdentityLimitPreservesGap(t *testing.T) {
+	input := ""
+	for _, id := range []string{"gen-1", "gen-2", "gen-3", "gen-4", "gen-5", "gen-6", "gen-7", "gen-8", "gen-9"} {
+		input += `data: {"type":"message_start","message":{"id":"` + id + `"}}` + "\n"
+		input += `data: {"type":"message_stop"}` + "\n"
+	}
+	gap, ids := false, 0
+	reader := &generationStream{ReadCloser: io.NopCloser(strings.NewReader(input)),
+		onID:      func(string) error { ids++; return nil },
+		onUnknown: func() error { gap = true; return nil },
+	}
+	if _, err := io.ReadAll(reader); err == nil || !gap || ids != 8 {
+		t.Fatalf("identity limit lost coverage gap: ids=%d gap=%v err=%v", ids, gap, err)
 	}
 }
