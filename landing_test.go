@@ -86,7 +86,7 @@ func TestLandingContentIdentity(t *testing.T) {
 			t.Fatal(err)
 		}
 		failed := t.TempDir()
-		if err := writeJSON(filepath.Join(failed, "attempt.json"), Attempt{SchemaVersion: 1, TaskID: "task", Arm: "fanisi", Status: "failed"}); err != nil {
+		if err := writeJSON(filepath.Join(failed, "attempt.json"), Attempt{SchemaVersion: 1, TaskID: "task", Arm: "fanisi", Status: "failed", StartedAt: time.Unix(1, 0).UTC()}); err != nil {
 			t.Fatal(err)
 		}
 		if err := writeJSON(filepath.Join(failed, "provider-ledger.json"), ReceiptLedger{SchemaVersion: 1, KnownCost: 0.5}); err != nil {
@@ -98,6 +98,16 @@ func TestLandingContentIdentity(t *testing.T) {
 		}
 		if got.Attempts != 2 || got.Accepted != 1 || got.Assisted != 1 || got.Autonomous != 0 || got.KnownCost != 0.75 || got.Tokens != 110 || got.TotalCost != nil || got.CostPerAutonomous != nil || got.Elapsed["task"] != 30 {
 			t.Fatalf("wrong delivery arithmetic: %+v", got)
+		}
+		if err := writeJSON(filepath.Join(failed, "attempt.json"), Attempt{SchemaVersion: 1, TaskID: "task", Arm: "fanisi", Status: "failed"}); err != nil {
+			t.Fatal(err)
+		}
+		uncertain, err := deliveryReport(t.TempDir(), []string{filepath.Join(dir, "attempt.json"), filepath.Join(failed, "attempt.json")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := uncertain.Elapsed["task"]; ok {
+			t.Fatal("missing failed-attempt start became known elapsed")
 		}
 		if err := os.Remove(filepath.Join(dir, "landing-one.json")); err != nil {
 			t.Fatal(err)

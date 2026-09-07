@@ -43,6 +43,7 @@ func deliveryReport(root string, paths []string) (DeliveryReport, error) {
 	seen := map[string]Receipt{}
 	accepted := map[string]bool{}
 	start := map[string]time.Time{}
+	timingUnknown := map[string]bool{}
 	landedAt := map[string]time.Time{}
 	for _, p := range paths {
 		dir := filepath.Dir(p)
@@ -51,6 +52,9 @@ func deliveryReport(root string, paths []string) (DeliveryReport, error) {
 			return d, err
 		}
 		d.Attempts++
+		if a.StartedAt.IsZero() {
+			timingUnknown[a.TaskID] = true
+		}
 		if !a.StartedAt.IsZero() && (start[a.TaskID].IsZero() || a.StartedAt.Before(start[a.TaskID])) {
 			start[a.TaskID] = a.StartedAt
 		}
@@ -158,6 +162,9 @@ func deliveryReport(root string, paths []string) (DeliveryReport, error) {
 				return d, fmt.Errorf("landing %s: %w", l.ID, err)
 			}
 			landed = true
+			if l.At.IsZero() {
+				timingUnknown[a.TaskID] = true
+			}
 			accepted[a.TaskID] = accepted[a.TaskID] || a.RepairFrom != ""
 			if !l.At.IsZero() && (landedAt[a.TaskID].IsZero() || l.At.Before(landedAt[a.TaskID])) {
 				landedAt[a.TaskID] = l.At
@@ -174,7 +181,7 @@ func deliveryReport(root string, paths []string) (DeliveryReport, error) {
 		} else {
 			d.Autonomous++
 		}
-		if !start[task].IsZero() && !landedAt[task].Before(start[task]) {
+		if !timingUnknown[task] && !start[task].IsZero() && !landedAt[task].Before(start[task]) {
 			d.Elapsed[task] = landedAt[task].Sub(start[task]).Seconds()
 		}
 	}
