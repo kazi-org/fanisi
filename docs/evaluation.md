@@ -191,13 +191,15 @@ cannot establish non-overlap automatically. Concurrent imports fail on a lock;
 retry after the owner finishes. A crashed importer may leave the lock directory.
 
 `fanisi import-coordinator STUDY_DIR ATTRIBUTION.json COORDINATOR.json` reads the
-existing `coordinator-usage` output directly and fills its source, window, tokens,
-and nullable price into the attribution record. Cumulative observation coverage
-remains partial. No transcript parsing, provider calls or price inference occurs.
+existing `coordinator-usage` output directly and fills its snapshot, effective observation window, tokens,
+and nullable price into the attribution record. A stable `source_fingerprint` must be supplied in the attribution; snapshot hashes
+are retained separately, so growing transcripts cannot bypass interval deduplication.
+Cumulative observation coverage remains partial, even with a known price. No transcript parsing, provider calls or price inference occurs.
 
 `fanisi import-landing ATTEMPT_DIR RECORD.json` checks a version 1 record with
 `id`, `repository` (local Git repository), full `target_base` and `merge_commit`
-SHAs, `review_record` filename, `patch_sha256`, `merge_evidence` and optional `at`.
+SHAs, `target_ref` (full target branch ref containing the merge result), `review_record` filename, `patch_sha256`, `merge_evidence`, `independent_review: true` and optional `at`. The referenced
+review must name its reviewer; independence is an explicit caller attestation.
 The repository must be the evaluated Git repository. A temporary index rebuilds
 the reviewed candidate and exact scoped blob/mode deltas must match the landing.
 Equivalent squash/rebase content works; intervening edits to scoped baselines
@@ -213,8 +215,8 @@ repairs and alternatives, and `repair_from` marks assisted acceptance. Every
 attempt, including failures, contributes. Delivery receipts deduplicate provider
 plus generation identity and reject inconsistent token subsets; historical
 aggregate-only receipts retain their cost lower bound with incomplete coverage.
-No harness estimate is added to settled receipts. Imported effort costs join the
-known lower bound; missing coordination/review coverage means total cost and
+No harness estimate is added to settled receipts. Task-attributed effort costs join the
+known lower bound; shared study preparation/tooling remain separate; missing coordination/review coverage means total cost and
 cost per autonomous acceptance remain null. Review durations and imported reviewer
 active time are separate measurements; do not add them together for the same work.
 Elapsed request-to-landing spans use earliest request and landing timestamps,
