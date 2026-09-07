@@ -6,7 +6,9 @@ The initial supported archives are macOS/Linux on arm64 and amd64. Packaging use
 Go and Python 3 standard libraries; it adds no runtime dependency to Fanisi.
 
 1. Check out the reviewed main commit in an isolated worktree. Follow the host's
-   shared-build lease and load rules before cross-compilation.
+   shared-build lease and load rules before cross-compilation. Create the version
+   tag at that reviewed commit before final packaging: Go records the tag in its
+   embedded main-module version. Keep the published tag fixed.
 2. Build a new external artifact directory:
 
    ```sh
@@ -29,8 +31,7 @@ Go and Python 3 standard libraries; it adds no runtime dependency to Fanisi.
    observations, nullable coverage, separate tooling investment, reviewed landing,
    content mismatch, equivalent unmerged content and revocation. It makes no
    inference or provider requests. CI runs this smoke on Linux and macOS too.
-4. After gates pass, create the version tag at that exact reviewed commit and
-   publish a GitHub release with the four archives and `SHA256SUMS`. Record the
+4. After packaging and native smoke pass, publish a GitHub release for that tag with the four archives and `SHA256SUMS`. Record the
    source SHA and validation evidence in the release notes. Never move a published
    tag or replace assets with different bytes; use a new version for corrections.
 5. Download the published native archive and checksums into a fresh directory,
