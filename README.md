@@ -9,6 +9,12 @@ It is a standalone project: no Kazi installation, Claude Code subscription,
 Python wrapper, database, or graph service is required. The current backend is
 OpenRouter **`z-ai/glm-5.3-flash`**, pinned to Z.AI with no model/provider fallback.
 
+Versioned archives, when published, are available from the
+[GitHub releases page](https://github.com/kazi-org/fanisi/releases). Verify the
+archive against its `SHA256SUMS` before extracting it to a chosen directory.
+[Release verification](docs/releasing.md) documents the offline smoke and source
+identity checks.
+
 ## Build and try it
 
 Requires Go 1.26 and macOS or Linux. No third-party Go dependencies.
