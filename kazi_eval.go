@@ -68,6 +68,7 @@ type evaluationSupervisor struct {
 	manifest            DispatchManifest
 	active              int
 	workerPID           int
+	cancelled           bool
 	baseline            map[string]FileIdentity
 	base                string
 	artifactManifestSHA string
@@ -79,6 +80,9 @@ func (s *evaluationSupervisor) start() (dispatchAdmission, error) {
 	reject := func(message string) (dispatchAdmission, error) {
 		s.manifest.Rejected++
 		return dispatchAdmission{}, errors.New(message)
+	}
+	if s.cancelled {
+		return dispatchAdmission{}, errors.New("evaluation cancelled")
 	}
 	if !time.Now().Before(s.manifest.Deadline) {
 		return reject("evaluation worker deadline exhausted")
@@ -199,6 +203,11 @@ func startSupervisor(ctx context.Context, s *evaluationSupervisor) (string, stri
 				http.Error(w, "invalid worker registration", 409)
 				return
 			}
+			if s.cancelled {
+				_ = syscall.Kill(-request.PID, syscall.SIGKILL)
+				http.Error(w, "evaluation cancelled", 409)
+				return
+			}
 			pgid, err := syscall.Getpgid(request.PID)
 			if err != nil && !errors.Is(err, syscall.ESRCH) {
 				http.Error(w, "cannot inspect worker group", 409)
@@ -293,8 +302,34 @@ func runKazi(ctx context.Context, e Evaluation, cfg Config, output string, promp
 		return err
 	}
 	execution.Protected[goalPath] = digest([]byte(goal))
-	workerCtx, cancel := context.WithDeadline(context.WithoutCancel(ctx), supervisor.manifest.Deadline.Add(5*time.Second))
-	defer cancel()
+	authorityCtx, stopAuthority := context.WithDeadline(ctx, supervisor.manifest.Deadline)
+	defer stopAuthority()
+	workerCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	cancellationDone := make(chan struct{})
+	go func() {
+		defer close(cancellationDone)
+		select {
+		case <-workerCtx.Done():
+			return
+		case <-authorityCtx.Done():
+		}
+		supervisor.mu.Lock()
+		supervisor.cancelled = true
+		if supervisor.workerPID > 1 {
+			_ = syscall.Kill(-supervisor.workerPID, syscall.SIGKILL)
+		}
+		supervisor.mu.Unlock()
+		// Compute authority ends immediately. Only controller/bridge receipt cleanup
+		// survives for this bounded grace, including an explicit caller cancellation.
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			cancel()
+		case <-workerCtx.Done():
+		}
+	}()
+	defer func() { cancel(); <-cancellationDone }()
 	cmd := exec.CommandContext(workerCtx, k.Executable, "apply", goalPath, "--workspace", cfg.Workspace, "--in-place", "--integration", "none", "--json")
 	cmd.Dir = cfg.Workspace
 	configDir := filepath.Join(output, "controller-home")
@@ -328,7 +363,7 @@ func runKazi(ctx context.Context, e Evaluation, cfg Config, output string, promp
 		return err
 	}
 	cmd.WaitDelay = 3 * time.Second
-	runErr := cmd.Run()
+	runErr := errors.Join(cmd.Run(), authorityCtx.Err())
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
 	if supervisor.workerPID > 1 {
