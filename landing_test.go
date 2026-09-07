@@ -124,6 +124,10 @@ func TestLandingContentIdentity(t *testing.T) {
 	})
 
 	t.Run("unmerged valid commit", func(t *testing.T) {
+		git("checkout", "-b", "unmerged-equivalent", base)
+		write("after\n")
+		git("add", ".")
+		git("commit", "-m", "equivalent but unmerged")
 		bad := l
 		bad.Merge = git("rev-parse", "HEAD")
 		bad.Evidence = "open PR"
