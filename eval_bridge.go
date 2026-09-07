@@ -82,7 +82,10 @@ func evaluationBridge(ctx context.Context, args []string) (runErr error) {
 	}
 	workerCtx, cancel := context.WithDeadline(ctx, admission.Deadline)
 	defer cancel()
-	runErr = executeClaude(workerCtx, cfg, admission.Output, []byte(prompt), admission.Options, false)
+	runErr = executeClaude(workerCtx, cfg, admission.Output, []byte(prompt), admission.Options, true, func(pid int) error {
+		var result any
+		return admissionRequest(context.Background(), "/worker", map[string]int{"slot": admission.Slot, "pid": pid}, &result)
+	})
 	var terminal json.RawMessage
 	found, err := claudeTerminal(filepath.Join(admission.Output, "claude-stream.jsonl"), &terminal)
 	if err != nil || !found {

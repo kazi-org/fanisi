@@ -70,7 +70,7 @@ func aggregateDispatchLedgers(dir string, paths []string) error {
 		if child.SchemaVersion != 1 {
 			return errors.New("unsupported dispatch receipt schema")
 		}
-		if !child.Complete {
+		if !child.Complete || len(child.Generations) == 0 {
 			ledger.Unresolved = append(ledger.Unresolved, filepath.Base(path)+": incomplete receipt coverage")
 		}
 		for _, gap := range child.Unresolved {

@@ -368,9 +368,6 @@ func evalRun(ctx context.Context, path, arm string, number int) (runErr error) {
 	if !a.ScopeOK || !a.VerificationPassed {
 		return errors.Join(runErr, verifyErr, errors.New("candidate failed independent scope or verification checks"))
 	}
-	if arm == "kazi-claude" && runErr != nil {
-		return runErr
-	}
 	a.Status = "verified_pending_review"
 	return runErr
 }
@@ -395,18 +392,32 @@ func candidatePatch(ctx context.Context, cfg Config) ([]byte, error) {
 		return nil, err
 	}
 	for _, path := range cfg.WritePaths {
-		if _, err := os.Lstat(filepath.Join(cfg.Workspace, path)); errors.Is(err, os.ErrNotExist) {
-			if _, trackedErr := run("ls-files", "--error-unmatch", "--", path); trackedErr != nil {
-				continue
+		info, err := os.Lstat(filepath.Join(cfg.Workspace, path))
+		if errors.Is(err, os.ErrNotExist) {
+			if _, err := run("update-index", "--force-remove", "--", path); err != nil {
+				return nil, err
 			}
-		} else if err != nil {
+			continue
+		}
+		if err != nil {
 			return nil, err
 		}
-		if _, err := run("add", "--all", "--force", "--", path); err != nil {
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("candidate path is not regular: %s", path)
+		}
+		object, err := run("hash-object", "-w", "--no-filters", "--", path)
+		if err != nil {
+			return nil, err
+		}
+		mode := "100644"
+		if info.Mode().Perm()&0111 != 0 {
+			mode = "100755"
+		}
+		if _, err := run("update-index", "--add", "--cacheinfo", mode, strings.TrimSpace(string(object)), path); err != nil {
 			return nil, err
 		}
 	}
-	return run("diff", "--cached", "--binary", "HEAD")
+	return run("diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "HEAD")
 }
 
 // Recheck the whole workspace, including new files, at verification and review.
