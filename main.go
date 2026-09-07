@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const model = "z-ai/glm-5.3-flash"
@@ -40,6 +41,7 @@ const usageText = `fanisi - measured software changes
   fanisi reconcile --key-file .env ATTEMPT_DIRECTORY
   fanisi review --attempt DIR --decision accept|reject --reviewer NAME --kind human|agent --seconds N --notes-file FILE
   fanisi report STUDY_DIRECTORY
+  fanisi coordinator-usage --from RFC3339 --to RFC3339 TRANSCRIPT_JSONL
   fanisi version
 
 Relative config paths resolve beside task.json. Read/write paths resolve in its
@@ -111,6 +113,28 @@ func mainContext(ctx context.Context, args []string) error {
 		if len(args) == 2 {
 			return report(args[1], os.Stdout)
 		}
+	case "coordinator-usage":
+		fs := flag.NewFlagSet("coordinator-usage", flag.ContinueOnError)
+		start := fs.String("from", "", "start of observation window, RFC3339")
+		end := fs.String("to", "", "end of observation window, RFC3339")
+		if err := fs.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if fs.NArg() != 1 {
+			return errors.New("coordinator-usage requires --from, --to and one transcript")
+		}
+		from, err := time.Parse(time.RFC3339, *start)
+		if err != nil {
+			return errors.New("--from must be an RFC3339 timestamp")
+		}
+		to, err := time.Parse(time.RFC3339, *end)
+		if err != nil {
+			return errors.New("--to must be an RFC3339 timestamp")
+		}
+		return coordinatorUsage(ctx, fs.Arg(0), from, to, os.Stdout)
 	case "profile":
 		if len(args) == 2 {
 			return profile(args[1])
