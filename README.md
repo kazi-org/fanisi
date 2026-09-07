@@ -88,7 +88,7 @@ alone does not establish completion. Run failures retain their evidence.
 
 These are tool boundaries, not an operating-system sandbox. The trusted verifier
 executes repository code locally. Other editors do not honor Fanisi's lock, and
-Fanisi does not yet enforce repository-wide changes made by test subprocesses.
+The evaluation runner detects tracked and untracked changes outside scope after execution; the standalone run command does not provide that repository-wide check.
 
 ## Inspect usage and evidence
 
@@ -118,6 +118,12 @@ stop before the provider-native token limit. Price estimates can age, receipts
 can arrive late, and failures can be billed: limits are not a provider-enforced
 dollar ceiling. No automatic network retries hide additional spend. The profiler
 marks missing responses explicitly rather than treating them as free calls.
+
+## Compare real changes
+
+The [evaluation runner and acceptance ledger](docs/evaluation.md) create frozen
+worktree trials, reconcile provider receipts, record reviews and repairs, and
+report cumulative cost per accepted change across Fanisi and Claude Code.
 
 ## Development
 
