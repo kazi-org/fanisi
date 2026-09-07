@@ -73,6 +73,7 @@ func schema(name, description string, props map[string]any, required ...string) 
 func toolSchemas() []any {
 	str := map[string]any{"type": "string"}
 	return []any{
+		schema("search", "Find a literal string in one readable file. Returns at most 20 matching lines / 6000 JSON bytes of hits, source hash, and next_start cursor. start defaults to 1. Use search to locate symbols before reading a block; no regex or shell is executed.", map[string]any{"path": str, "query": str, "start": map[string]any{"type": "integer"}}, "path", "query"),
 		schema("read", "Read a scoped file. One-based start. Oversized requests return a bounded prefix (at most 120 lines, 12000 bytes) with an explicit next_start cursor. Use targeted slices; source text has no added line prefixes.", map[string]any{"path": str, "start": map[string]any{"type": "integer"}, "lines": map[string]any{"type": "integer"}}, "path", "start", "lines"),
 		schema("replace", "Replace exactly one occurrence of old text in a scoped file. Fails without writing if missing or ambiguous. Use a small unique anchor; new text can span lines.", map[string]any{"path": str, "old": str, "new": str}, "path", "old", "new"),
 		schema("create", "Create a new file in the write scope; refuses to overwrite existing files.", map[string]any{"path": str, "content": str}, "path", "content"),
@@ -344,6 +345,7 @@ func (h *Harness) execute(ctx context.Context, call Call) (result any, pass bool
 	}()
 	var arg struct {
 		Path    string `json:"path"`
+		Query   string `json:"query"`
 		Content string `json:"content"`
 		Start   int    `json:"start"`
 		Lines   int    `json:"lines"`
@@ -355,10 +357,13 @@ func (h *Harness) execute(ctx context.Context, call Call) (result any, pass bool
 	if err := dec.Decode(&arg); err != nil {
 		return nil, false, fmt.Errorf("invalid tool arguments: %w", err)
 	}
-	if call.Function.Name != "read" {
+	if call.Function.Name != "read" && call.Function.Name != "search" {
 		h.verified = nil
 	}
 	switch call.Function.Name {
+	case "search":
+		result, toolErr = searchFile(ctx, h.cfg, arg.Path, arg.Query, arg.Start)
+		return result, false, toolErr
 	case "read", "replace":
 		allowed := h.cfg.WritePaths
 		if call.Function.Name == "read" {
