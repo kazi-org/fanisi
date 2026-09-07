@@ -28,7 +28,8 @@ func main() {
 	}
 }
 
-const version = "0.1.0-dev"
+// Release packaging sets version with -ldflags "-X main.version=...".
+var version = "0.1.0-dev"
 
 const usageText = `fanisi - measured software changes
 
@@ -40,6 +41,9 @@ const usageText = `fanisi - measured software changes
   fanisi eval --config evaluation.json --arm fanisi|claude|claude-packet [--attempt 1]
   fanisi reconcile --key-file .env ATTEMPT_DIRECTORY
   fanisi review --attempt DIR --decision accept|reject --reviewer NAME --kind human|agent --seconds N --notes-file FILE
+  fanisi import-effort STUDY_DIRECTORY RECORD_JSON
+  fanisi import-coordinator STUDY_DIRECTORY ATTRIBUTION_JSON COORDINATOR_JSON
+  fanisi import-landing ATTEMPT_DIRECTORY RECORD_JSON
   fanisi report STUDY_DIRECTORY
   fanisi coordinator-usage --from RFC3339 --to RFC3339 TRANSCRIPT_JSONL
   fanisi version
