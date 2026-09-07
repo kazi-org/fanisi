@@ -99,3 +99,43 @@ func TestEffortCLIReportReload(t *testing.T) {
 		t.Fatal("malformed JSON accepted")
 	}
 }
+
+func TestCoordinatorImportEffectiveWindow(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "attempt")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSON(filepath.Join(dir, "attempt.json"), Attempt{SchemaVersion: 1, TaskID: "task"}); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "attribution.json")
+	receipt := filepath.Join(t.TempDir(), "receipt.json")
+	e := Effort{SchemaVersion: 1, ID: "coord", Study: "study", Task: "task", Attempt: "attempt", Source: "stable-session", Allocation: "exclusive"}
+	put := func(snapshot string) {
+		t.Helper()
+		if err := writeJSON(file, e); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeJSON(receipt, map[string]any{"schema_version": 1, "snapshot_sha256": snapshot, "observed_before": "2026-09-07T00:00:00Z", "observed_end": "2026-09-07T00:01:00Z", "tokens": coordinatorTokens{Input: 100, Cached: 80, Output: 10, Reasoning: 4, Total: 110}, "cost_usd": 0.5}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("snapshot-1")
+	if err := mainContext(context.Background(), []string{"import-coordinator", root, file, receipt}); err != nil {
+		t.Fatal(err)
+	}
+	e.ID = "coord-2"
+	put("snapshot-2")
+	if err := mainContext(context.Background(), []string{"import-coordinator", root, file, receipt}); err == nil {
+		t.Fatal("same source overlap across snapshots accepted")
+	}
+	totals, err := effortReport(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := totals["coordinator"]
+	if r.Cost != nil || r.PartialRecords != 1 || r.KnownCost != 0.5 || r.Input+r.Output != 110 {
+		t.Fatalf("partial receipt became complete: %+v", r)
+	}
+}

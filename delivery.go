@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -153,7 +154,10 @@ func deliveryReport(root string, paths []string) (DeliveryReport, error) {
 	if err != nil {
 		return d, err
 	}
-	for _, r := range effort {
+	for role, r := range effort {
+		if strings.HasPrefix(role, "study_") {
+			continue
+		}
 		d.KnownCost += r.KnownCost
 	}
 	// An import's absence cannot prove that coordination and review were free.

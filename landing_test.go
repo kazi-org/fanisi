@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLandingContentIdentity(t *testing.T) {
@@ -53,19 +54,55 @@ func TestLandingContentIdentity(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "configuration.json"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	a := Attempt{SchemaVersion: 1, Base: base, PatchSHA: digest(patch), ConfigurationSHA: digest(raw), VerificationPassed: true, ScopeOK: true}
+	a := Attempt{TaskID: "task", Arm: "fanisi", RepairFrom: "initial", StartedAt: time.Unix(1, 0).UTC(), SchemaVersion: 1, Base: base, PatchSHA: digest(patch), ConfigurationSHA: digest(raw), VerificationPassed: true, ScopeOK: true}
 	if err := writeJSON(filepath.Join(dir, "attempt.json"), a); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeJSON(filepath.Join(dir, "review-one.json"), Review{Decision: "accept", Kind: "agent", PatchSHA: a.PatchSHA}); err != nil {
+	if err := writeJSON(filepath.Join(dir, "review-one.json"), Review{Reviewer: "external-fixture", Decision: "accept", Kind: "agent", PatchSHA: a.PatchSHA}); err != nil {
 		t.Fatal(err)
 	}
 	git("add", ".")
 	git("commit", "-m", "candidate")
-	l := Landing{SchemaVersion: 1, ID: "one", Repository: repo, TargetBase: base, Merge: git("rev-parse", "HEAD"), Review: "review-one.json", Evidence: "synthetic captured merge", Patch: a.PatchSHA}
+	git("branch", "landed")
+	l := Landing{IndependentReview: true, TargetRef: "refs/heads/landed", SchemaVersion: 1, ID: "one", Repository: repo, TargetBase: base, Merge: git("rev-parse", "HEAD"), Review: "review-one.json", Evidence: "synthetic captured merge", Patch: a.PatchSHA}
 	if err := verifyLanding(ctx, dir, l); err != nil {
 		t.Fatal(err)
 	}
+
+	t.Run("synthetic delivery arithmetic", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "landing.json")
+		record := l
+		record.At = time.Unix(31, 0).UTC()
+		if err := writeJSON(file, record); err != nil {
+			t.Fatal(err)
+		}
+		if err := importLanding(ctx, dir, file); err != nil {
+			t.Fatal(err)
+		}
+		cost := 0.25
+		input, output, cached, reasoning := 100, 10, 80, 4
+		receipt := Receipt{ID: "generation", Provider: "fixture", Cost: &cost, Prompt: &input, Output: &output, Cached: &cached, Reasoning: &reasoning}
+		if err := writeJSON(filepath.Join(dir, "provider-ledger.json"), ReceiptLedger{SchemaVersion: 1, Complete: true, Generations: []Receipt{receipt, receipt}}); err != nil {
+			t.Fatal(err)
+		}
+		failed := t.TempDir()
+		if err := writeJSON(filepath.Join(failed, "attempt.json"), Attempt{SchemaVersion: 1, TaskID: "task", Arm: "fanisi", Status: "failed"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeJSON(filepath.Join(failed, "provider-ledger.json"), ReceiptLedger{SchemaVersion: 1, KnownCost: 0.5}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := deliveryReport(t.TempDir(), []string{filepath.Join(dir, "attempt.json"), filepath.Join(failed, "attempt.json")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Attempts != 2 || got.Accepted != 1 || got.Assisted != 1 || got.Autonomous != 0 || got.KnownCost != 0.75 || got.Tokens != 110 || got.TotalCost != nil || got.CostPerAutonomous != nil || got.Elapsed["task"] != 30 {
+			t.Fatalf("wrong delivery arithmetic: %+v", got)
+		}
+		if err := os.Remove(filepath.Join(dir, "landing-one.json")); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("changed landed implementation", func(t *testing.T) {
 		write("wrong\n")
 		git("add", ".")
@@ -83,6 +120,15 @@ func TestLandingContentIdentity(t *testing.T) {
 			t.Fatal("open PR accepted")
 		}
 	})
+
+	t.Run("unmerged valid commit", func(t *testing.T) {
+		bad := l
+		bad.Merge = git("rev-parse", "HEAD")
+		bad.Evidence = "open PR"
+		if err := verifyLanding(ctx, dir, bad); err == nil {
+			t.Fatal("unmerged commit counted as landed")
+		}
+	})
 	t.Run("wrong repository", func(t *testing.T) {
 		bad := l
 		bad.Repository = t.TempDir()
@@ -96,9 +142,32 @@ func TestLandingContentIdentity(t *testing.T) {
 		git("add", ".")
 		git("commit", "-m", "squashed differently")
 		squash := l
+		squash.TargetRef = "refs/heads/squash"
 		squash.Merge = git("rev-parse", "HEAD")
 		if err := verifyLanding(ctx, dir, squash); err != nil {
 			t.Fatal(err)
+		}
+	})
+
+	t.Run("intervening scoped base", func(t *testing.T) {
+		bad := l
+		bad.TargetBase = l.Merge
+		if err := verifyLanding(ctx, dir, bad); err == nil {
+			t.Fatal("intervening scoped change accepted")
+		}
+	})
+	t.Run("amended reviewed patch", func(t *testing.T) {
+		path := filepath.Join(dir, "candidate.patch")
+		if err := os.WriteFile(path, []byte("amended"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := os.WriteFile(path, patch, 0600); err != nil {
+				t.Error(err)
+			}
+		})
+		if err := verifyLanding(ctx, dir, l); err == nil {
+			t.Fatal("amended patch accepted")
 		}
 	})
 	t.Run("duplicate and revocation", func(t *testing.T) {
@@ -117,6 +186,13 @@ func TestLandingContentIdentity(t *testing.T) {
 		}
 		if err := importLanding(ctx, dir, file); err != nil {
 			t.Fatal(err)
+		}
+		got, err := deliveryReport(t.TempDir(), []string{filepath.Join(dir, "attempt.json")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Accepted != 0 || got.VerifiedPending != 1 {
+			t.Fatalf("revoked landing counted: %+v", got)
 		}
 	})
 }

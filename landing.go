@@ -14,16 +14,18 @@ import (
 )
 
 type Landing struct {
-	SchemaVersion int       `json:"schema_version"`
-	ID            string    `json:"id"`
-	Repository    string    `json:"repository"`
-	TargetBase    string    `json:"target_base"`
-	Merge         string    `json:"merge_commit"`
-	Review        string    `json:"review_record"`
-	Evidence      string    `json:"merge_evidence"`
-	Revokes       string    `json:"revokes,omitempty"`
-	At            time.Time `json:"at"`
-	Patch         string    `json:"patch_sha256"`
+	IndependentReview bool      `json:"independent_review"`
+	TargetRef         string    `json:"target_ref"`
+	SchemaVersion     int       `json:"schema_version"`
+	ID                string    `json:"id"`
+	Repository        string    `json:"repository"`
+	TargetBase        string    `json:"target_base"`
+	Merge             string    `json:"merge_commit"`
+	Review            string    `json:"review_record"`
+	Evidence          string    `json:"merge_evidence"`
+	Revokes           string    `json:"revokes,omitempty"`
+	At                time.Time `json:"at"`
+	Patch             string    `json:"patch_sha256"`
 }
 
 func verifyLanding(ctx context.Context, dir string, l Landing) error {
@@ -51,7 +53,7 @@ func verifyLanding(ctx context.Context, dir string, l Landing) error {
 	if err := readJSON(filepath.Join(dir, l.Review), &r); err != nil {
 		return err
 	}
-	if r.Decision != "accept" || r.PatchSHA != a.PatchSHA || (r.Kind != "human" && r.Kind != "agent") {
+	if !l.IndependentReview || strings.TrimSpace(r.Reviewer) == "" || r.Decision != "accept" || r.PatchSHA != a.PatchSHA || (r.Kind != "human" && r.Kind != "agent") {
 		return errors.New("landing requires independent accepted review")
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "configuration.json"))
@@ -87,6 +89,16 @@ func verifyLanding(ctx context.Context, dir string, l Landing) error {
 		if len(ref) != 40 || strings.Trim(ref, "0123456789abcdef") != "" {
 			return errors.New("landing requires full commit identities")
 		}
+	}
+
+	if !strings.HasPrefix(l.TargetRef, "refs/heads/") && !strings.HasPrefix(l.TargetRef, "refs/remotes/") {
+		return errors.New("landing requires recorded target branch ref")
+	}
+	if _, err := gitOutput(ctx, l.Repository, "merge-base", "--is-ancestor", l.TargetBase, l.Merge); err != nil {
+		return errors.New("merge result is not based on target base")
+	}
+	if _, err := gitOutput(ctx, l.Repository, "merge-base", "--is-ancestor", l.Merge, l.TargetRef); err != nil {
+		return errors.New("merge result is not on recorded target branch")
 	}
 	patch, err := os.ReadFile(filepath.Join(dir, "candidate.patch"))
 	if err != nil {

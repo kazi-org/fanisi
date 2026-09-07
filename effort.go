@@ -14,6 +14,7 @@ import (
 // Effort is an offline attribution, not a price estimate. Token subsets are
 // retained for auditing; they never add to input plus output.
 type Effort struct {
+	Snapshot      string             `json:"snapshot_sha256,omitempty"`
 	SchemaVersion int                `json:"schema_version"`
 	ID            string             `json:"id"`
 	Study         string             `json:"study"`
@@ -121,6 +122,9 @@ func importEffortSource(root, file, coordinator string) error {
 		return err
 	}
 	for _, old := range records {
+		if old.Study != e.Study {
+			return errors.New("study directory cannot mix study identities")
+		}
 		if old.ID == e.ID {
 			if reflect.DeepEqual(old, e) {
 				return nil
@@ -141,12 +145,14 @@ func importEffortSource(root, file, coordinator string) error {
 // Coordinator receipts are consumed directly; transcripts are not reparsed here.
 func coordinatorEffort(file string, e *Effort) error {
 	var c struct {
-		SchemaVersion int               `json:"schema_version"`
-		Snapshot      string            `json:"snapshot_sha256"`
-		From          time.Time         `json:"from"`
-		To            time.Time         `json:"to"`
-		Tokens        coordinatorTokens `json:"tokens"`
-		Cost          *float64          `json:"cost_usd"`
+		ObservedBefore time.Time         `json:"observed_before"`
+		ObservedEnd    time.Time         `json:"observed_end"`
+		SchemaVersion  int               `json:"schema_version"`
+		Snapshot       string            `json:"snapshot_sha256"`
+		From           time.Time         `json:"from"`
+		To             time.Time         `json:"to"`
+		Tokens         coordinatorTokens `json:"tokens"`
+		Cost           *float64          `json:"cost_usd"`
 	}
 	b, err := os.ReadFile(file)
 	if err != nil {
@@ -158,9 +164,12 @@ func coordinatorEffort(file string, e *Effort) error {
 	if c.SchemaVersion != 1 || c.Snapshot == "" {
 		return errors.New("unsupported coordinator receipt")
 	}
-	e.Source = c.Snapshot
-	e.From = c.From
-	e.To = c.To
+	if e.Source == "" || c.ObservedBefore.IsZero() || !c.ObservedEnd.After(c.ObservedBefore) {
+		return errors.New("coordinator attribution requires stable source identity and observed interval")
+	}
+	e.Snapshot = c.Snapshot
+	e.From = c.ObservedBefore
+	e.To = c.ObservedEnd
 	e.Tokens = &c.Tokens
 	e.Cost = c.Cost
 	e.Role = "coordinator"
@@ -169,6 +178,7 @@ func coordinatorEffort(file string, e *Effort) error {
 }
 
 type EffortTotal struct {
+	PartialRecords  int      `json:"partial_coverage_records"`
 	Records         int      `json:"records"`
 	Input           int64    `json:"input_tokens"`
 	Cached          int64    `json:"cached_input_tokens"`
@@ -198,6 +208,9 @@ func effortReport(root string) (map[string]*EffortTotal, error) {
 			totals[key] = r
 		}
 		r.Records++
+		if e.Coverage != "complete" {
+			r.PartialRecords++
+		}
 		if e.Tokens != nil {
 			r.Input += e.Tokens.Input
 			r.Cached += e.Tokens.Cached
@@ -216,7 +229,7 @@ func effortReport(root string) (map[string]*EffortTotal, error) {
 		}
 	}
 	for _, r := range totals {
-		if r.UnknownPrices == 0 {
+		if r.UnknownPrices == 0 && r.PartialRecords == 0 {
 			cost := r.KnownCost
 			r.Cost = &cost
 		}
