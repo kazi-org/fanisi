@@ -31,7 +31,7 @@ func TestBridgeCannotIncreaseTaskLimits(t *testing.T) {
 
 func TestBridgeAcceptsActualKaziToolArgumentShape(t *testing.T) {
 	cfg := Config{Reasoning: "medium", MaxCost: 20, MaxCalls: 15}
-	args := []string{"-p", "task", "--output-format", "json", "--allowed-tools", "Bash", "Read", "Edit", "Write", "Glob", "Grep", "--permission-mode", "dontAsk", "--model", model, "--effort", "medium"}
+	args := []string{"-p", "task", "--output-format", "json", "--allowed-tools", "Bash", "Read", "Edit", "Write", "Glob", "Grep", "--permission-mode", "dontAsk", "--model", model, "--tools", "Read", "Edit", "Write", "Bash", "Glob", "Grep", "--strict-mcp-config", "--effort", "medium"}
 	if _, prompt, err := bridgeArguments(cfg, args); err != nil || prompt != "task" {
 		t.Fatalf("real controller argument shape failed: %q %v", prompt, err)
 	}

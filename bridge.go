@@ -18,6 +18,14 @@ func bridgeArguments(cfg Config, args []string) (Config, string, error) {
 	seen := map[string]bool{}
 	prompt := ""
 	for len(args) > 0 {
+		if args[0] == "--strict-mcp-config" {
+			if seen[args[0]] {
+				return cfg, "", errors.New("duplicate strict MCP option")
+			}
+			seen[args[0]] = true
+			args = args[1:]
+			continue
+		}
 		if len(args) < 2 {
 			return cfg, "", errors.New("bridge requires valued Claude arguments")
 		}
@@ -49,7 +57,7 @@ func bridgeArguments(cfg Config, args []string) (Config, string, error) {
 			if value != "dontAsk" {
 				return cfg, "", errors.New("bridge requires dontAsk permissions")
 			}
-		case "--allowedTools":
+		case "--allowedTools", "--tools":
 			values := []string{value}
 			for len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 				values = append(values, args[0])

@@ -167,7 +167,7 @@ func TestEvaluationUsesFrozenWorktreeAndIndependentVerifier(t *testing.T) {
 		t.Fatal(err)
 	}
 	bridgeOutput := filepath.Join(root, "bridge-dispatches")
-	bridgeArgs := []string{"-p", "controller task", "--model", model, "--output-format", "json"}
+	bridgeArgs := []string{"-p", "controller task", "--output-format", "json", "--allowed-tools", "Bash", "Read", "Edit", "Write", "Glob", "Grep", "--permission-mode", "dontAsk", "--model", model, "--tools", "Read", "Edit", "Write", "Bash", "Glob", "Grep", "--strict-mcp-config", "--effort", "medium"}
 	if err := claudeBridge(ctx, bridgeTask, bridgeOutput, 8192, 2, "", bridgeArgs); err == nil {
 		t.Fatal("bridge accepted the wrong working directory")
 	}
