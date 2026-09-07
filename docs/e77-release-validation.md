@@ -42,6 +42,11 @@ reviewed source. The version tag was created before packaging. Linux arm64,
 Linux amd64 and macOS amd64 archives were cross-built and checksum-verified;
 this record does not claim those three binaries were executed locally.
 
+A later documentation CI run exposed a cancellation-fixture readiness race:
+the worker could be cancelled before writing its child PID. The fixture now
+waits for that PID before cancelling. This test-only correction does not change
+the released binary or its published assets.
+
 ## Scope of the result
 
 The runner now produces ordinary independently graded attempts for the
