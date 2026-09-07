@@ -342,3 +342,82 @@ uses a blocking localhost proxy, sends no provider request, checks worker and
 child process death, and retains incomplete receipt evidence. Kazi database,
 state, sinks and home directories are private to each temporary trial. The
 ordinary offline suite skips this check unless both binary paths are supplied.
+
+## Optional Claude provider-request admission
+
+An evaluation can opt into one additional pre-forward admission contract:
+
+```json
+{
+  "claude_admission": {
+    "max_requests": 24,
+    "max_output_tokens": 8192,
+    "max_price_usd_per_million": {"prompt": 0.15, "completion": 0.50}
+  }
+}
+```
+
+This block requires `claude_provider: "Z.AI"`. Requests and output allowances
+must be positive; output is bounded to 64,000 and prices must be finite and
+positive. Without the block, existing relay behavior and CLI settings remain
+unchanged. Set `claude_max_output_tokens` to 8192 as well when freezing this
+example; admission clamps a larger CLI setting to its own output limit.
+
+A direct run receives 24 request reservations. A two-dispatch Kazi run reserves
+12 for each dispatch, including a failed first dispatch. A bridge capability
+handshake is required before launch when this block is present; an older bridge
+that could ignore the new option is refused. Neither retries nor
+failed upstream calls refund a reservation, and unused capacity does not move
+between dispatches. An atomic process-local counter records admission before
+forwarding; concurrent requests cannot exceed the reserved count. Requests over
+the count receive HTTP 429 and never reach upstream. Invalid or excessive
+`max_tokens` values are rejected, so worker-supplied output settings cannot
+raise the declared cap.
+
+Every admitted request overrides provider routing to `Z.AI` only, disables
+fallback and supplies the declared prompt/completion `provider.max_price` values
+in USD per million tokens. This proves what the relay sends. Live provider
+handling of those price preferences, input-token limits and invoice ceilings
+is not certified by offline tests. Admission evidence is not a receipt and
+cannot release a monetary reserve; actual receipt reconciliation remains
+necessary before treating any unused reserve as available.
+
+Only the ordinary message request fields and custom client tools are admitted.
+Unknown request extensions, server tools, plugins, containers, service tiers,
+and nontrivial context-management edits fail closed. The installed Claude CLI's
+exact `clear_thinking_20251015` / `keep: "all"` context marker is a no-op and is
+removed before forwarding; no other context edit is accepted. Outbound headers
+are restricted to ordinary API authentication, content and version headers, so
+beta or alternate routing headers cannot opt into other provider features.
+
+Admission also sets `DISABLE_PROMPT_CACHING=1` and rejects nested `cache_control`
+markers. The declared prompt/completion caps do not establish a cache-write
+pricing contract. This common setting applies to both arms when the block is
+present; it intentionally changes their normal cache behavior. The installed
+Claude offline protocol probe verifies the effective request, including the
+8,192 output limit, absent cache markers and explicit routing prices.
+
+Each relay writes `claude-admission.json` containing `schema_version: 1`, the
+frozen `limits`, `admitted_requests`, `refused_requests`, `refusal_reasons` and a
+basis note distinguishing these declarations from receipts. Shutdown rewrites
+that record from process memory after worker completion. Kazi's explicit
+`dispatch-manifest.json` additionally records `total_request_allowance` and each
+`reserved_requests` share. Those counts are separate from generation IDs,
+provider token usage and actual cost in `provider-ledger.json`.
+
+Offline qualification commands:
+
+```sh
+FANISI_CLAUDE_PROTOCOL_TEST=1 \
+  go test -run '^TestInstalledClaude(RequestShape|AdmissionRun)$' -v .
+FANISI_E77_CANDIDATE_BINARY=/isolated/bin/fanisi \
+FANISI_E77_KAZI_BINARY=/isolated/bin/kazi \
+  go test -run '^TestInstalledAdmissionBudget$' -v .
+```
+
+The first command uses the installed Claude executable against a rejecting
+localhost API; the second uses fake Claude and a localhost proxy that refuses
+CONNECT before any provider connection. Both are offline and send no provider
+inference request. Source fake transports also check concurrent excess traffic,
+failed-call retention, routing overrides, output violations and unsupported
+extensions. No paid test is enabled by this block or these commands.
