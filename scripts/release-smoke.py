@@ -84,7 +84,7 @@ def main():
         write(attempt / "provider-ledger.json", {"schema_version": 1, "complete": True, "generations": [receipt, receipt]})
         failed = study / "failed"
         failed.mkdir()
-        write(failed / "attempt.json", {"schema_version": 1, "task_id": "task", "arm": "fanisi", "status": "failed"})
+        write(failed / "attempt.json", {"schema_version": 1, "task_id": "task", "arm": "fanisi", "status": "failed", "started_at": "2026-09-07T00:00:00Z"})
         write(failed / "provider-ledger.json", {"schema_version": 1, "complete": False, "known_cost_usd": 0.5})
         attribution = {"schema_version": 1, "id": "coord", "study": "synthetic", "task": "task",
                        "attempt": "repair", "source_fingerprint": "stable-session", "allocation": "exclusive"}
@@ -133,6 +133,12 @@ def main():
         assert actors["reviewer"]["known_active_seconds"] == 12 and actors["reviewer"]["total_cost_usd"] is None
         assert actors["study_tooling"]["known_cost_usd"] == 7
         checks += 5
+        failed_record = json.loads((failed / "attempt.json").read_text())
+        del failed_record["started_at"]
+        write(failed / "attempt.json", failed_record)
+        uncertain = json.loads(cli("report", study))["delivery"]["request_to_landing_seconds"]
+        assert "task" not in uncertain, "missing failed-attempt start became known elapsed"
+        checks += 1
         # A wrong implementation on its target branch must fail content identity.
         code.write_text("wrong\n")
         git("add", ".")
