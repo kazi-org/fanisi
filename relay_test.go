@@ -41,7 +41,7 @@ func TestRelayPinsProviderAndStreamsWithoutExposingKey(t *testing.T) {
 			t.Errorf("request contract changed: %+v", body)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "data: first\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"message_start","message":{"id":"gen-early"}}`+"\n\n")
 		w.(http.Flusher).Flush()
 		select {
 		case <-release:
@@ -65,7 +65,7 @@ func TestRelayPinsProviderAndStreamsWithoutExposingKey(t *testing.T) {
 	}
 	defer res.Body.Close()
 	first, err := bufio.NewReader(res.Body).ReadString('\n')
-	if err != nil || first != "data: first\n" {
+	if err != nil || first != `data: {"type":"message_start","message":{"id":"gen-early"}}`+"\n" {
 		t.Fatalf("stream was not forwarded: %q %v", first, err)
 	}
 	if calls.Load() != 1 {
@@ -74,6 +74,9 @@ func TestRelayPinsProviderAndStreamsWithoutExposingKey(t *testing.T) {
 	record, err := os.ReadFile(filepath.Join(output, "relay-request-1.json"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(string(record), "gen-early") {
+		t.Fatal("stream identity was lost before response completion")
 	}
 	if strings.Contains(string(record), "secret") {
 		t.Fatal("credential leaked into request metadata")

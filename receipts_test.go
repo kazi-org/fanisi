@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -68,6 +69,62 @@ func TestReconciliationDeduplicatesAndRejectsIncompleteReceipts(t *testing.T) {
 				}
 			} else if ledger.Cost != nil || ledger.Tokens != nil {
 				t.Fatal("missing receipt treated as zero cost")
+			}
+		})
+	}
+}
+
+func TestReconciliationRecoversEarlyIDsButPreservesCoverageGaps(t *testing.T) {
+	for _, tc := range []struct {
+		name                    string
+		terminal, gap, complete bool
+	}{
+		{"interrupted", false, false, false}, {"finished", true, false, true}, {"missing_ingress_identity", true, true, false}, {"blank_ingress_identity", true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			trace := ""
+			if tc.terminal {
+				trace = "{\"type\":\"result\",\"is_error\":false}\n"
+			}
+			if err := os.WriteFile(filepath.Join(dir, "claude-stream.jsonl"), []byte(trace), 0600); err != nil {
+				t.Fatal(err)
+			}
+			for n, id := range []string{"gen-one", "gen-two"} {
+				ids := []string{id}
+				if tc.gap && n == 1 {
+					ids = nil
+					if tc.name == "blank_ingress_identity" {
+						ids = []string{""}
+					}
+				}
+				if err := writeJSON(filepath.Join(dir, fmt.Sprintf("relay-request-%d.json", n+1)), map[string]any{"generation_ids": ids, "stream_complete": tc.terminal}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": r.URL.Query().Get("id"), "model": model, "total_cost": 0.001, "native_tokens_prompt": 100, "native_tokens_completion": 20}})
+			}))
+			defer server.Close()
+			target, _ := url.Parse(server.URL)
+			client := &http.Client{Transport: redirectTransport{target: target, base: http.DefaultTransport}}
+			err := reconcileWithClient(context.Background(), dir, "fixture-key", client)
+			if (err == nil) != tc.complete {
+				t.Fatalf("unexpected reconciliation verdict: %v", err)
+			}
+			var ledger ReceiptLedger
+			if err := readJSON(filepath.Join(dir, "provider-ledger.json"), &ledger); err != nil {
+				t.Fatal(err)
+			}
+			want := 2
+			if tc.gap {
+				want = 1
+			}
+			if len(ledger.Generations) != want || ledger.KnownTokens != want*120 || ledger.KnownCost != float64(want)*0.001 {
+				t.Fatalf("lost early receipts: %+v", ledger)
+			}
+			if ledger.Complete != tc.complete || (!tc.complete && ledger.Cost != nil) {
+				t.Fatalf("gap reported as complete: %+v", ledger)
 			}
 		})
 	}

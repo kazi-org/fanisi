@@ -81,7 +81,10 @@ fanisi report attempts
 ```
 
 Receipt reconciliation deduplicates visible generation IDs and fetches provider
-receipts. Failed CLI sessions can omit request IDs; their total remains unknown
+receipts. The provider relay captures generation IDs from streamed message-start
+events before Claude finishes an assistant message, retaining billing identities
+across interrupted replies without storing response content. Missing relay IDs
+and missing stream-stop events remain explicit coverage gaps. Failed CLI sessions can omit request IDs; their total remains unknown
 while resolved spend is retained. Reasoning tokens are a subset of output tokens.
 No command turns missing usage into zero or counts a CLI cost estimate as a bill.
 
@@ -127,3 +130,20 @@ controller run an external wall-clock deadline; bridge limits apply per dispatch
 Use an isolated Kazi read-model and a dedicated task worktree. Reconcile every
 dispatch's receipts, including failures, and independently review the final diff.
 The bridge does not itself create an evaluation attempt or an acceptance record.
+
+
+### Verify early receipt capture against the provider
+
+The default test suite is offline. This separate opt-in probe sends one paid
+GLM request with a 64-token output cap, closes the reply after its generation ID
+arrives, and retains metadata for reconciliation. It is a transport check, not a
+coding benchmark. Choose a fresh output directory:
+
+```sh
+FANISI_LIVE_RELAY_TEST=1 FANISI_LIVE_RELAY_KEY_FILE=.env \
+  FANISI_LIVE_RELAY_OUTPUT=.fanisi/probes/early-id-1 \
+  go test -run TestLiveRelayCapturesEarlyGenerationID -v
+fanisi reconcile --key-file .env .fanisi/probes/early-id-1
+```
+
+A missing receipt remains unknown even when the transport probe passes.

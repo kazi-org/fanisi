@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -54,6 +55,24 @@ func generationIDs(dir string) ([]string, error) {
 		}
 		if r.ID != "" {
 			seen[r.ID] = true
+		}
+	}
+	relayFiles, err := filepath.Glob(filepath.Join(dir, "relay-request-*.json"))
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range relayFiles {
+		var record struct {
+			IDs      []string `json:"generation_ids"`
+			Complete bool     `json:"stream_complete"`
+		}
+		if err := readJSON(path, &record); err != nil {
+			return nil, err
+		}
+		for _, id := range record.IDs {
+			if id != "" {
+				seen[id] = true
+			}
 		}
 	}
 	f, err := os.Open(filepath.Join(dir, "claude-stream.jsonl"))
@@ -136,6 +155,25 @@ func reconcileWithClient(ctx context.Context, dir, key string, client *http.Clie
 		found, err := claudeTerminal(filepath.Join(dir, "claude-stream.jsonl"), &terminal)
 		if err != nil || !found || terminal.IsError {
 			ledger.Unresolved = append(ledger.Unresolved, "Claude did not emit a successful terminal result; requests without IDs may be unmetered")
+		}
+	}
+	relayFiles, err := filepath.Glob(filepath.Join(dir, "relay-request-*.json"))
+	if err != nil {
+		return err
+	}
+	for _, path := range relayFiles {
+		var record struct {
+			IDs      []string `json:"generation_ids"`
+			Complete bool     `json:"stream_complete"`
+		}
+		if err := readJSON(path, &record); err != nil {
+			return err
+		}
+		if len(record.IDs) == 0 || slices.Contains(record.IDs, "") {
+			ledger.Unresolved = append(ledger.Unresolved, filepath.Base(path)+": upstream request has no observed generation id")
+		}
+		if !record.Complete {
+			ledger.Unresolved = append(ledger.Unresolved, filepath.Base(path)+": upstream stream did not finish")
 		}
 	}
 	ledger.Complete = len(ledger.Unresolved) == 0
