@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -49,5 +53,49 @@ func TestEffortAttribution(t *testing.T) {
 	e.Tokens.Cached = 11
 	if err := validateEffort(e); err == nil {
 		t.Fatal("invalid cached subset accepted")
+	}
+}
+
+func TestEffortCLIReportReload(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "attempt")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSON(filepath.Join(dir, "attempt.json"), Attempt{SchemaVersion: 1, TaskID: "task", Arm: "fanisi"}); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "effort.json")
+	e := Effort{SchemaVersion: 1, ID: "review", Study: "study", Task: "task", Attempt: "attempt", Role: "reviewer", Source: "review-source", From: time.Unix(1, 0).UTC(), To: time.Unix(20, 0).UTC(), Coverage: "complete", Allocation: "exclusive"}
+	seconds := 12.0
+	e.Seconds = &seconds
+	if err := writeJSON(file, e); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := mainContext(context.Background(), []string{"import-effort", root, file}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if err := report(root, &out); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Effort   map[string]EffortTotal `json:"effort"`
+		Delivery DeliveryReport         `json:"delivery"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	r := got.Effort["reviewer"]
+	if r.Records != 1 || r.ActiveSeconds != 12 || r.Cost != nil || got.Delivery.TotalCost != nil {
+		t.Fatalf("report: %s", out.Bytes())
+	}
+	if err := os.WriteFile(file, []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := mainContext(context.Background(), []string{"import-effort", root, file}); err == nil {
+		t.Fatal("malformed JSON accepted")
 	}
 }
