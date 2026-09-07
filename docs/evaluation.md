@@ -148,3 +148,28 @@ fanisi reconcile --key-file .env .fanisi/probes/early-id-1
 ```
 
 A missing receipt remains unknown even when the transport probe passes.
+
+## Coordinator tokens
+
+Worker receipts omit the coordinating session. For a Codex JSONL session with
+cumulative `event_msg` / `token_count` observations, capture that usage separately:
+
+```sh
+fanisi coordinator-usage --from 2026-09-07T00:38:47Z \
+  --to 2026-09-07T05:00:00Z /private/path/to/session.jsonl > coordinator-usage.json
+```
+
+The command subtracts the last observation strictly before `--from` from the last
+observation within the requested window. It reports both observed timestamps;
+boundary requests can overlap the window, and it infers no usage after the last
+observation. Input includes cached tokens; reasoning is part of output. Total is
+computed from input plus output, not the transcript's potentially stale total.
+Dollar cost stays null. This supplements worker receipts; it is not included in
+`report` automatically and does not measure other reviewing sessions.
+
+Successful JSON output contains counters and a SHA-256 fingerprint of the
+byte-bounded transcript snapshot, without message text or the file path. Missing boundaries/counters,
+resets, out-of-order observations, invalid JSON, inconsistent counts and lines over
+16 MiB fail instead of producing a plausible total. A partially written final
+record also fails; retry after it has been written. The local Codex event shape
+must match the supported fields; this command does not infer missing categories.
