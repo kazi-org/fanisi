@@ -501,7 +501,7 @@ func runCommandWithEnv(ctx context.Context, root string, argv []string, logPath 
 	cmd.Dir = root
 	for _, e := range os.Environ() {
 		name, _, _ := strings.Cut(e, "=")
-		if strings.Contains(name, "KEY") || strings.Contains(name, "TOKEN") || strings.HasPrefix(name, "ANTHROPIC_") || strings.HasPrefix(name, "CLAUDE") {
+		if name == "FANISI_CONTROLLER_ARTIFACT_MANIFEST" || strings.Contains(name, "KEY") || strings.Contains(name, "TOKEN") || strings.HasPrefix(name, "ANTHROPIC_") || strings.HasPrefix(name, "CLAUDE") {
 			continue
 		}
 		cmd.Env = append(cmd.Env, e)

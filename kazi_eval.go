@@ -67,6 +67,7 @@ type evaluationSupervisor struct {
 	output              string
 	manifest            DispatchManifest
 	active              int
+	workerPID           int
 	baseline            map[string]FileIdentity
 	base                string
 	artifactManifestSHA string
@@ -147,6 +148,7 @@ func (s *evaluationSupervisor) finish(slot int, runError string) error {
 		s.manifest.IntegrityError = err.Error()
 		r.Error = errors.Join(errors.New(runError), err).Error()
 	}
+	s.workerPID = 0
 	s.active = 0
 	if saveErr := writeJSON(filepath.Join(s.output, "dispatch-manifest.json"), s.manifest); saveErr != nil {
 		return saveErr
@@ -180,6 +182,34 @@ func startSupervisor(ctx context.Context, s *evaluationSupervisor) (string, stri
 			if err := json.NewEncoder(w).Encode(a); err != nil {
 				return
 			}
+			return
+		}
+		if r.URL.Path == "/worker" {
+			var request struct {
+				Slot int `json:"slot"`
+				PID  int `json:"pid"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 16384)).Decode(&request); err != nil {
+				http.Error(w, "invalid worker", 400)
+				return
+			}
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if request.Slot != s.active || s.active == 0 || s.workerPID != 0 || request.PID <= 1 {
+				http.Error(w, "invalid worker registration", 409)
+				return
+			}
+			pgid, err := syscall.Getpgid(request.PID)
+			if err != nil && !errors.Is(err, syscall.ESRCH) {
+				http.Error(w, "cannot inspect worker group", 409)
+				return
+			}
+			if err == nil && pgid != request.PID {
+				http.Error(w, "worker must own process group", 409)
+				return
+			}
+			s.workerPID = request.PID
+			fmt.Fprintln(w, "{}")
 			return
 		}
 		if r.URL.Path == "/finish" {
@@ -257,13 +287,13 @@ func runKazi(ctx context.Context, e Evaluation, cfg Config, output string, promp
 		return err
 	}
 	defer closeSupervisor()
-	goal := fmt.Sprintf("id = %s\nname = %s\n[scope]\nno_integration = true\n[integration]\nmode = \"none\"\n[conventions]\nprocess_contract = false\n[harness]\nid = \"claude\"\nmodel = %s\neffort = %s\ncommand = %s\n[budget]\nmax_dispatches = %d\nmax_wall_clock_ms = %d\n[[predicate]]\nid = \"external-verifier\"\nprovider = \"custom_script\"\ndescription = %s\ncmd = %s\nargs = %s\nverdict = \"exit_zero\"\n", strconv.Quote(e.TaskID), strconv.Quote("Frozen trial "+e.TaskID), strconv.Quote(model), strconv.Quote(cfg.Reasoning), strconv.Quote(wrapper), k.MaxDispatches, cfg.MaxSeconds*1000, strconv.Quote(string(prompt)), strconv.Quote(cfg.VerifyCommand[0]), tomlStrings(cfg.VerifyCommand[1:]))
+	goal := fmt.Sprintf("id = %s\nname = %s\n[scope]\nno_integration = true\n[integration]\nmode = \"none\"\n[conventions]\nprocess_contract = false\n[harness]\nid = \"claude\"\nmodel = %s\neffort = %s\ncommand = %s\npermission_mode = \"dontAsk\"\nallowed_tools = [\"Bash\",\"Read\",\"Edit\",\"Write\",\"Glob\",\"Grep\"]\n[budget]\nmax_dispatches = %d\nmax_wall_clock_ms = %d\n[[predicate]]\nid = \"external-verifier\"\nprovider = \"custom_script\"\ndescription = %s\ncmd = %s\nargs = %s\nverdict = \"exit_zero\"\n", strconv.Quote(e.TaskID), strconv.Quote("Frozen trial "+e.TaskID), strconv.Quote(model), strconv.Quote(cfg.Reasoning), strconv.Quote(wrapper), k.MaxDispatches, cfg.MaxSeconds*1000, strconv.Quote(string(prompt)), strconv.Quote(cfg.VerifyCommand[0]), tomlStrings(cfg.VerifyCommand[1:]))
 	goalPath := filepath.Join(output, "controller.goal.toml")
 	if err := writeNew(goalPath, []byte(goal)); err != nil {
 		return err
 	}
 	execution.Protected[goalPath] = digest([]byte(goal))
-	workerCtx, cancel := context.WithDeadline(ctx, supervisor.manifest.Deadline)
+	workerCtx, cancel := context.WithDeadline(context.WithoutCancel(ctx), supervisor.manifest.Deadline.Add(5*time.Second))
 	defer cancel()
 	cmd := exec.CommandContext(workerCtx, k.Executable, "apply", goalPath, "--workspace", cfg.Workspace, "--in-place", "--integration", "none", "--json")
 	cmd.Dir = cfg.Workspace
@@ -276,7 +306,7 @@ func runKazi(ctx context.Context, e Evaluation, cfg Config, output string, promp
 			cmd.Env = append(cmd.Env, entry)
 		}
 	}
-	cmd.Env = append(cmd.Env, "KAZI_DB="+filepath.Join(output, "controller.sqlite3"), "FANISI_CONTROLLER_ARTIFACT_MANIFEST="+filepath.Join(output, "controller-artifacts.json"), "FANISI_EVAL_ADMISSION_URL="+endpoint, "FANISI_EVAL_ADMISSION_TOKEN="+token)
+	cmd.Env = append(cmd.Env, "KAZI_DB="+filepath.Join(output, "controller.sqlite3"), "KAZI_STATE_DIR="+filepath.Join(output, "controller-state"), "KAZI_SINKS_DIR="+filepath.Join(output, "controller-runs"), "KAZI_SESSION_COLLECTOR=false", "KAZI_VELOCITY_COLLECTOR=false", "ERL_FLAGS=+S 2:2", "FANISI_CONTROLLER_ARTIFACT_MANIFEST="+filepath.Join(output, "controller-artifacts.json"), "FANISI_EVAL_ADMISSION_URL="+endpoint, "FANISI_EVAL_ADMISSION_TOKEN="+token)
 	stdout, err := os.OpenFile(filepath.Join(output, "controller-result.json"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -301,6 +331,9 @@ func runKazi(ctx context.Context, e Evaluation, cfg Config, output string, promp
 	runErr := cmd.Run()
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
+	if supervisor.workerPID > 1 {
+		_ = syscall.Kill(-supervisor.workerPID, syscall.SIGKILL)
+	}
 	execution.Manifest = supervisor.manifest
 	execution.ArtifactManifestSHA = supervisor.artifactManifestSHA
 	if len(supervisor.manifest.Dispatches) > 0 {
@@ -317,6 +350,7 @@ func runKazi(ctx context.Context, e Evaluation, cfg Config, output string, promp
 		return errors.Join(runErr, errors.New(supervisor.manifest.IntegrityError))
 	}
 	if supervisor.manifest.Rejected > 0 {
+		execution.Manifest.IntegrityError = "controller exceeded dispatch admission contract"
 		return errors.Join(runErr, errors.New("controller exceeded dispatch admission contract"))
 	}
 	if len(supervisor.manifest.Dispatches) == 0 {

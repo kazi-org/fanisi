@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -73,11 +77,23 @@ case "$FANISI_TEST_MODE" in
  two) case "$HOME" in *dispatch-0001*) exit 7;; esac;;
  context) printf 'worker tampered\n' >> .kazi/context.md;;
  hidden) git update-index --assume-unchanged protected.txt; printf 'tampered\n' > protected.txt;;
+ hidden-skip) git update-index --skip-worktree protected.txt; printf 'tampered\n' > protected.txt;;
+ mode) chmod 755 protected.txt;;
+ symlink) rm protected.txt; ln -s value.txt protected.txt;;
+ artifact-mode) chmod 600 .kazi/context.md;;
  ignored) printf 'hidden\n' > ignored.txt;;
  instruction) printf 'rogue instructions\n' > AGENTS.md;;
  protected) printf 'changed brief\n' > "$FANISI_TEST_PROMPT";;
 esac
 printf 'new\n' > value.txt
+case "$FANISI_TEST_MODE" in valid-nonzero) exit 7;; valid-timeout)
+ printf '%s\n' $$ > "$FANISI_TEST_PID_DIR/worker.pid"
+ if [ "$FANISI_TEST_INTERRUPTED_RELAY" = 1 ]; then
+ curl --noproxy '*' -s -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN" -H 'Content-Type: application/json' -d '{"model":"z-ai/glm-5.3-flash","max_tokens":1,"messages":[{"role":"user","content":"synthetic offline fixture"}]}' "$ANTHROPIC_BASE_URL/v1/messages" >/dev/null &
+ else sleep 20 &
+ fi
+ printf '%s\n' $! > "$FANISI_TEST_PID_DIR/child.pid"
+ wait;; esac
 printf '{"type":"assistant","message":{"id":"synthetic-generation"}}\n'
 printf '{"type":"result","is_error":false}\n'
 `
@@ -94,6 +110,7 @@ printf '{"mcpServers":{"code-review-graph":{"command":"code-review-graph","args"
 "$bridge" -p 'Fix value.txt' --model z-ai/glm-5.3-flash --output-format json --effort medium > /dev/null
 case "$FANISI_TEST_MODE" in two|third) "$bridge" -p 'Fix value.txt' --model z-ai/glm-5.3-flash --output-format json --effort medium > /dev/null;; esac
 if [ "$FANISI_TEST_MODE" = third ]; then "$bridge" -p 'Fix value.txt' --model z-ai/glm-5.3-flash --output-format json --effort medium > /dev/null; fi
+if [ "$FANISI_TEST_MODE" = valid-nonzero ]; then exit 7; fi
 printf '{"schema_version":2,"status":"converged"}\n'
 `
 	kazi := filepath.Join(bin, "kazi")
@@ -112,8 +129,9 @@ printf '{"schema_version":2,"status":"converged"}\n'
 	t.Setenv("FANISI_E77_HELPER", "1")
 	t.Setenv("FANISI_TEST_MODE", mode)
 	t.Setenv("FANISI_TEST_PROMPT", prompt)
+	t.Setenv("FANISI_TEST_PID_DIR", root)
 	seconds := 10
-	if mode == "timeout" {
+	if mode == "timeout" || mode == "valid-timeout" {
 		seconds = 1
 	}
 	cfg := Config{SchemaVersion: 1, Workspace: repo, Output: filepath.Join(root, "unused"), KeyFile: key, PromptFile: prompt, WritePaths: []string{"value.txt"}, VerifyCommand: []string{"sh", "-c", "test \"$(cat value.txt)\" = new"}, MaxCalls: 5, MaxSeconds: seconds, MaxCost: 1, MaxTokens: 10000, MaxOutputTokens: 1024, MaxContextBytes: 10000, PacketBytes: 4000, Reasoning: "medium", Pricing: Pricing{Input: 1, Output: 1, Source: "synthetic"}}
@@ -130,7 +148,7 @@ printf '{"schema_version":2,"status":"converged"}\n'
 }
 
 func TestKaziEvaluationLifecycle(t *testing.T) {
-	for _, mode := range []string{"success", "two", "third", "context", "hidden", "ignored", "instruction", "protected", "no-worker", "timeout"} {
+	for _, mode := range []string{"success", "two", "third", "context", "hidden", "hidden-skip", "mode", "symlink", "artifact-mode", "ignored", "instruction", "protected", "no-worker", "timeout"} {
 		t.Run(mode, func(t *testing.T) {
 			e, path := kaziFixture(t, mode)
 			started := time.Now()
@@ -147,7 +165,7 @@ func TestKaziEvaluationLifecycle(t *testing.T) {
 			if !good && (err == nil || attempt.Status == "verified_pending_review") {
 				t.Fatalf("invalid run became verified: %+v %v", attempt, err)
 			}
-			if mode == "timeout" && time.Since(started) > 5*time.Second {
+			if mode == "timeout" && time.Since(started) > 8*time.Second {
 				t.Fatal("controller deadline did not terminate descendants")
 			}
 			if good {
@@ -274,5 +292,140 @@ func TestDispatchReceiptAggregationPreservesFailures(t *testing.T) {
 	}
 	if err := aggregateDispatchLedgers(root, paths); err == nil {
 		t.Fatal("conflicting request accepted")
+	}
+}
+
+func TestEvaluationAcceptsIndependentlyValidFailedExecution(t *testing.T) {
+	for _, arm := range []string{"claude", "kazi-claude"} {
+		for _, mode := range []string{"valid-nonzero", "valid-timeout"} {
+			t.Run(arm+"/"+mode, func(t *testing.T) {
+				e, path := kaziFixture(t, mode)
+				_ = evalRun(context.Background(), path, arm, 1)
+				var a Attempt
+				if err := readJSON(filepath.Join(e.Output, e.TaskID, arm, "1", "attempt.json"), &a); err != nil {
+					t.Fatal(err)
+				}
+				if a.Status != "verified_pending_review" || !a.VerificationPassed || !a.ScopeOK {
+					t.Fatalf("valid partial candidate rejected: %+v", a)
+				}
+			})
+		}
+	}
+}
+
+func TestCandidatePatchIgnoresCleanFilters(t *testing.T) {
+	e, _ := kaziFixture(t, "success")
+	ctx := context.Background()
+	if _, err := gitOutput(ctx, e.Repository, "config", "filter.transform.clean", "sed s/new/WRONG/g"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.Repository, ".git", "info", "attributes"), []byte("value.txt filter=transform\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.Repository, "value.txt"), []byte("new\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	patch, err := candidatePatch(ctx, Config{Workspace: e.Repository, WritePaths: []string{"value.txt"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(patch), "+new\n") || strings.Contains(string(patch), "WRONG") {
+		t.Fatalf("filter transformed audited candidate: %s", patch)
+	}
+}
+
+func TestInstalledKaziEvaluation(t *testing.T) {
+	binary, controller := os.Getenv("FANISI_E77_CANDIDATE_BINARY"), os.Getenv("FANISI_E77_KAZI_BINARY")
+	if binary == "" || controller == "" {
+		t.Skip("explicit isolated Fanisi and Kazi binaries required")
+	}
+	for _, mode := range []string{"success", "two", "instruction", "valid-timeout"} {
+		t.Run(mode, func(t *testing.T) {
+			e, path := kaziFixture(t, mode)
+			if mode == "valid-timeout" {
+				proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+				defer proxy.Close()
+				t.Setenv("HTTPS_PROXY", proxy.URL)
+				t.Setenv("NO_PROXY", "localhost,127.0.0.1")
+				t.Setenv("FANISI_TEST_INTERRUPTED_RELAY", "1")
+			}
+			raw, err := os.ReadFile(controller)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.Kazi.Executable = controller
+			e.Kazi.ExecutableSHA = digest(raw)
+			e.Kazi.FanisiExecutable = binary
+			var cfg Config
+			if err := readJSON(e.TaskConfig, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			cfg.MaxSeconds = 15
+			if err := writeJSON(e.TaskConfig, cfg); err != nil {
+				t.Fatal(err)
+			}
+			if err := writeJSON(path, e); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+			defer cancel()
+			out, runErr := exec.CommandContext(ctx, binary, "eval", "--config", path, "--arm", "kazi-claude", "--attempt", "1").CombinedOutput()
+			dir := filepath.Join(e.Output, e.TaskID, "kazi-claude", "1")
+			var a Attempt
+			if err := readJSON(filepath.Join(dir, "attempt.json"), &a); err != nil {
+				t.Fatalf("attempt: %v %s", err, out)
+			}
+			good := mode != "instruction"
+			if good && a.Status != "verified_pending_review" {
+				dispatchLog, _ := os.ReadFile(filepath.Join(dir, "dispatch-manifest.json"))
+				t.Logf("dispatches: %s", dispatchLog)
+				controllerLog, _ := os.ReadFile(filepath.Join(dir, "controller-stderr.log"))
+				result, _ := os.ReadFile(filepath.Join(dir, "controller-result.json"))
+				t.Fatalf("installed candidate rejected: %v %s\n%s\n%s", runErr, out, controllerLog, result)
+			}
+			if mode == "valid-timeout" {
+				for _, name := range []string{"worker.pid", "child.pid"} {
+					raw, err := os.ReadFile(filepath.Join(filepath.Dir(e.TaskConfig), name))
+					if err != nil {
+						t.Fatal(err)
+					}
+					pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+					if err != nil {
+						t.Fatal(err)
+					}
+					until := time.Now().Add(2 * time.Second)
+					for syscall.Kill(pid, 0) == nil && time.Now().Before(until) {
+						time.Sleep(20 * time.Millisecond)
+					}
+					if syscall.Kill(pid, 0) == nil {
+						t.Fatalf("worker descendant survived: %s", name)
+					}
+				}
+				var receipt map[string]any
+				if err := readJSON(filepath.Join(dir, "dispatch-0001", "relay-request-1.json"), &receipt); err != nil {
+					t.Fatal(err)
+				}
+				if receipt["stream_complete"] != false {
+					t.Fatal("interrupted relay claimed complete")
+				}
+				var manifest DispatchManifest
+				if err := readJSON(filepath.Join(dir, "dispatch-manifest.json"), &manifest); err != nil {
+					t.Fatal(err)
+				}
+				if len(manifest.Dispatches) != 1 || manifest.Dispatches[0].Error == "" {
+					t.Fatal("interrupted dispatch evidence missing")
+				}
+			}
+			if !good && a.Status == "verified_pending_review" {
+				t.Fatal("unexpected generated instruction accepted")
+			}
+			if good {
+				for _, p := range []string{"AGENTS.md", "CLAUDE.md"} {
+					if _, err := os.Lstat(filepath.Join(a.Workspace, p)); !os.IsNotExist(err) {
+						t.Fatalf("unexpected scope-tree instruction %s", p)
+					}
+				}
+			}
+		})
 	}
 }

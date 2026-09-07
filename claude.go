@@ -47,7 +47,7 @@ func runClaude(parent context.Context, cfg Config, output string, prompt []byte,
 	return executeClaude(parent, cfg, output, prompt, options, true)
 }
 
-func executeClaude(parent context.Context, cfg Config, output string, prompt []byte, options ClaudeOptions, ownProcessGroup bool) error {
+func executeClaude(parent context.Context, cfg Config, output string, prompt []byte, options ClaudeOptions, ownProcessGroup bool, started ...func(int) error) error {
 	key, err := resolveKey(cfg.KeyFile)
 	if err != nil {
 		return err
@@ -110,7 +110,20 @@ func executeClaude(parent context.Context, cfg Config, output string, prompt []b
 		}
 	}
 	cmd.WaitDelay = 3 * time.Second
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("Claude execution (see attempt logs): %w", err)
+	}
+	if ownProcessGroup {
+		defer syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	for _, notify := range started {
+		if err := notify(cmd.Process.Pid); err != nil {
+			_ = cmd.Cancel()
+			_ = cmd.Wait()
+			return err
+		}
+	}
+	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("Claude execution (see attempt logs): %w", err)
 	}
 	return nil
