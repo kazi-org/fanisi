@@ -59,3 +59,22 @@ func TestReportCountsFailedAttemptsAndSeparatesReviewKinds(t *testing.T) {
 		t.Fatalf("failed attempt cost disappeared: %f", a.KnownCost)
 	}
 }
+
+func TestDeliveryPartialReceiptCoverage(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "attempt.json")
+	if err := writeJSON(path, Attempt{SchemaVersion: 1, TaskID: "task", Arm: "fanisi", Status: "failed"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSON(filepath.Join(dir, "provider-ledger.json"), ReceiptLedger{SchemaVersion: 1, Complete: true, Generations: []Receipt{{ID: "request", Provider: "fixture"}}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := deliveryReport(t.TempDir(), []string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := got.Providers["fixture"]
+	if got.MissingReceipts != 1 || c.Requests != 1 || c.MissingPrices != 1 || c.MissingTokens != 1 || got.TotalCost != nil {
+		t.Fatalf("partial receipt became complete: %+v", got)
+	}
+}
