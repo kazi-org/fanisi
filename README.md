@@ -71,9 +71,13 @@ review and tests that detect the original defect remain part of acceptance.
 
 ## Tools and completion
 
-The model can read bounded slices, replace one exact unique anchor, create an
+The model can search scoped files, read bounded slices, replace one exact unique anchor, create an
 explicitly scoped new file, run the configured formatter, and run the configured
 verifier. No general model-authored shell tool is exposed.
+
+Search finds a literal string in one readable file and returns bounded matching
+lines with a continuation cursor. It reads at most 2 MiB and does not execute
+regexes or shell commands. Use it to locate symbols before reading a block.
 
 Reads return at most 120 lines / 12,000 bytes with a continuation cursor. Edits
 reject path traversal and symlinks; creates never overwrite. Full command logs
