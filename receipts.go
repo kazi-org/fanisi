@@ -151,15 +151,20 @@ func reconcileWithClient(ctx context.Context, dir, key string, client *http.Clie
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	// Claude's stream has no API-ingress counter. State that coverage limit rather
-	// than inferring that invisible background or interrupted requests were free.
+	boundedCoverage, admissionErr := completeAdmissionCoverage(dir, ids)
+	if admissionErr != nil {
+		ledger.Unresolved = append(ledger.Unresolved, admissionErr.Error())
+	}
+	// A terminal worker error does not lose accounting when opt-in admission
+	// proves that every forwarded request has a complete, unique receipt identity.
+	// Legacy streams still lack an ingress counter and retain that limitation.
 	if _, err := os.Stat(filepath.Join(dir, "claude-stream.jsonl")); err == nil {
 		var terminal struct {
 			Subtype string `json:"subtype"`
 			IsError bool   `json:"is_error"`
 		}
 		found, err := claudeTerminal(filepath.Join(dir, "claude-stream.jsonl"), &terminal)
-		if err != nil || !found || terminal.IsError {
+		if err != nil || !found || (terminal.IsError && !boundedCoverage) {
 			ledger.Unresolved = append(ledger.Unresolved, "Claude did not emit a successful terminal result; requests without IDs may be unmetered")
 		}
 	}
@@ -278,4 +283,57 @@ func receiptCoverage(arm string) string {
 		return "visible generation IDs; Claude background/transport failures without IDs are not observable"
 	}
 	return "recorded API calls matched to unique provider generation receipts"
+}
+
+// completeAdmissionCoverage requires the complete numbered ingress record set.
+// Pre-forward refusals consume no provider request and are deliberately separate.
+func completeAdmissionCoverage(dir string, ids []string) (bool, error) {
+	var admission AdmissionEvidence
+	err := readStrictJSON(filepath.Join(dir, "claude-admission.json"), &admission)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("reading request admission evidence: %w", err)
+	}
+	if admission.SchemaVersion != 1 || admission.Limits.validate() != nil || admission.Admitted < 1 || admission.Admitted > admission.Limits.MaxRequests || admission.Refused < 0 {
+		return false, errors.New("invalid request admission evidence")
+	}
+	files, err := filepath.Glob(filepath.Join(dir, "relay-request-*.json"))
+	if err != nil {
+		return false, fmt.Errorf("discovering admitted requests: %w", err)
+	}
+	if len(files) != admission.Admitted {
+		return false, errors.New("admitted request count differs from relay evidence")
+	}
+	seen := map[string]bool{}
+	for n := 1; n <= admission.Admitted; n++ {
+		var record struct {
+			Request  int      `json:"request"`
+			Status   int      `json:"status_code"`
+			IDs      []string `json:"generation_ids"`
+			Complete bool     `json:"stream_complete"`
+			Gap      bool     `json:"identity_gap"`
+		}
+		if err := readJSON(filepath.Join(dir, fmt.Sprintf("relay-request-%d.json", n)), &record); err != nil {
+			return false, fmt.Errorf("reading admitted request %d: %w", n, err)
+		}
+		if record.Request != n || record.Status < 200 || record.Status >= 300 || !record.Complete || record.Gap || len(record.IDs) != 1 {
+			return false, fmt.Errorf("admitted request %d lacks complete unique identity", n)
+		}
+		id := record.IDs[0]
+		if !strings.HasPrefix(id, "gen-") || len(id) > 256 || !simpleID(id) || seen[id] {
+			return false, fmt.Errorf("admitted request %d has invalid or repeated identity", n)
+		}
+		seen[id] = true
+	}
+	if len(seen) != len(ids) {
+		return false, errors.New("admission identities differ from observed generation identities")
+	}
+	for _, id := range ids {
+		if !seen[id] {
+			return false, errors.New("observed generation missing from admission evidence")
+		}
+	}
+	return true, nil
 }
