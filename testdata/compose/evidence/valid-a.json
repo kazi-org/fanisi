@@ -1,0 +1,22 @@
+[
+  {
+    "id": "ev-a-audio",
+    "kind": "A",
+    "product_ids": [
+      "product.voice",
+      "product.notes"
+    ],
+    "implementation_ids": [
+      "impl.audio.v1",
+      "impl.audio.v2"
+    ],
+    "product_kinds": {
+      "product.voice": "real",
+      "product.notes": "real"
+    },
+    "source_refs": [
+      "src/a1",
+      "src/a2"
+    ]
+  }
+]

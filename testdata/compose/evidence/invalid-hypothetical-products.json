@@ -1,0 +1,22 @@
+[
+  {
+    "id": "ev-bad-hyp",
+    "kind": "A",
+    "product_ids": [
+      "hyp.one",
+      "hyp.two"
+    ],
+    "implementation_ids": [
+      "impl.a",
+      "impl.b"
+    ],
+    "product_kinds": {
+      "hyp.one": "hypothetical",
+      "hyp.two": "hypothetical"
+    },
+    "source_refs": [
+      "src/h1",
+      "src/h2"
+    ]
+  }
+]

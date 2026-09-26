@@ -1,0 +1,22 @@
+[
+  {
+    "id": "ev-b-thread",
+    "kind": "B",
+    "product_ids": [
+      "product.voice",
+      "product.notes"
+    ],
+    "implementation_ids": [
+      "impl.thread.v1"
+    ],
+    "product_kinds": {
+      "product.voice": "real",
+      "product.notes": "real"
+    },
+    "source_refs": [
+      "src/voice",
+      "src/notes"
+    ],
+    "notes_ref": "notes/ev-b"
+  }
+]
