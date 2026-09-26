@@ -68,8 +68,8 @@ DEADLINE=$(date -u -v+30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+30 min
 WRITES=$(amsl-agent-plugin files --spec "$REPO/$SPEC_REL" --out "$OUT_REL" |
   awk 'BEGIN { printf "[" } { printf "%s\"%s\"", (NR > 1 ? ", " : ""), $0 } END { printf "]" }')
 [ "$WRITES" != "[]" ] || fail "generator listed no files"
-PROTECTED='["plugins/fanisi.spec.json", "plugins/README.md", "scripts/self-apply-agent-plugins.sh", "docs/agent-plugins.md"]'
-for p in plugins/fanisi.spec.json plugins/README.md scripts/self-apply-agent-plugins.sh docs/agent-plugins.md; do
+PROTECTED='["plugins/fanisi.spec.json", "plugins/README.md", "scripts/self-apply-agent-plugins.sh", "docs/agent-plugins.md", "docs/plans/agent-host-plugins.md"]'
+for p in plugins/fanisi.spec.json plugins/README.md scripts/self-apply-agent-plugins.sh docs/agent-plugins.md docs/plans/agent-host-plugins.md; do
   [ -f "$REPO/$p" ] || fail "protected input $p is missing"
 done
 

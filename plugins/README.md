@@ -8,6 +8,9 @@ it into three independent plugin folders under `generated/`:
 - `generated/claude-code` (`.claude-plugin/plugin.json`)
 - `generated/cursor` (`.cursor-plugin/plugin.json`)
 
+`generated/.agents/plugins/marketplace.json` makes `generated/` a local Codex
+marketplace named `fanisi-compose` whose one entry points at `./codex`.
+
 Each folder has a user-invoked `fanisi-compose` skill, a `.mcp.json` that starts
 `amsl-agent-plugin serve --spec-json ...`, a bundled copy of the spec, a README
 with installation steps and `amsl-provenance.json` with file digests.

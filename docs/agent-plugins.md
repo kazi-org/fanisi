@@ -54,10 +54,29 @@ go build -o "$HOME/.local/bin/fanisi" .
 go build -o "$HOME/.local/bin/amsl-agent-plugin" ./cmd/amsl-agent-plugin
 ```
 
-Then install one generated folder per host as its README describes. The MCP
-server resolves `fanisi` once at startup and requires `fanisi compose --help`
-to contain the documented `dispatch` usage line; otherwise it exits with the
-error on stderr.
+Both `fanisi` and `amsl-agent-plugin` must be on the `PATH` of the host
+process, not only your interactive shell. The MCP server resolves `fanisi`
+once at startup and requires `fanisi compose --help` to contain the documented
+`dispatch` usage line; otherwise it exits with the error on stderr.
+
+Install one generated folder per host. From the repository root:
+
+```sh
+# Codex: plugins/generated is a local marketplace named fanisi-compose
+codex plugin marketplace add plugins/generated
+codex plugin add fanisi-compose@fanisi-compose
+
+# Claude Code, for one session
+claude --plugin-dir plugins/generated/claude-code
+
+# Cursor: copy, then reload Cursor
+cp -R plugins/generated/cursor ~/.cursor/plugins/local/fanisi-compose
+```
+
+The Codex commands change your user Codex configuration and copy the plugin
+into Codex's cache; re-run `codex plugin add` after regenerating. Remove with
+`codex plugin remove fanisi-compose@fanisi-compose` and
+`codex plugin marketplace remove fanisi-compose`.
 
 ## Self-application recipe
 
@@ -72,8 +91,9 @@ through a real `fanisi compose dispatch`:
    evidence list. The single decision is `product_local` by the operator. No
    catalog status, maturity or adoption is claimed.
 4. Pins `product_revision` to the current `HEAD`. Write paths are exactly the
-   files `amsl-agent-plugin files` lists; the spec, this script,
-   `plugins/README.md` and this document are protected inputs.
+   files `amsl-agent-plugin files` lists, including the Codex marketplace
+   catalog; the spec, this script, `plugins/README.md`, this document and
+   [the plan](plans/agent-host-plugins.md) are protected inputs.
 5. Dispatches `amsl-agent-plugin generate` as the delegate. Fanisi's
    independent verifier runs `amsl-agent-plugin check`, which compares every
    byte and rejects missing, extra or symlinked files.
@@ -93,6 +113,6 @@ MCP calls made through the official Go SDK client against the real `fanisi`
 binary. Provider usage for these runs is unknown (`usage_complete: false`)
 because the delegate makes no provider calls and reports none.
 
-Not yet verified: installing any generated folder in Codex, Claude Code or
-Cursor and invoking it from the host UI. Packaging checks are not host
-installation evidence.
+Host qualification gates, completed and remaining, are tracked in
+[plans/agent-host-plugins.md](plans/agent-host-plugins.md). No generated
+plugin has yet been invoked from a live Codex, Claude Code or Cursor session.
