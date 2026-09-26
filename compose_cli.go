@@ -28,11 +28,12 @@ Relative artifact paths resolve beside the primary config file for that command
 (request, index, file, or journal). Workspace/output fields in JSON also resolve
 beside their owning file. Read/write/protected scope paths stay workspace-relative.
 Delegate/verifier argv is preserved byte-for-byte except argv[0] executable
-resolution at execution (child cwd is workspace). env_names lists opt-in names
-only (PATH/TMPDIR plus those names); credential values are never logged or stored.
-Canonical hashing omits only each record's own content_sha256. Hash prints the
-digest without modifying files. All written artifacts use exclusive create.
-Failures exit 1 via mainContext.
+resolution at execution (child cwd is workspace). Bare argv[0] uses PATH
+(LookPath); workspace scripts use ./script or an absolute workspace path.
+env_names lists opt-in names only (PATH/TMPDIR plus those names); credential
+values are never logged or stored. Canonical hashing omits only each record's
+own content_sha256. Hash prints the digest without modifying files. All written
+artifacts use exclusive create. Failures exit 1 via mainContext.
 
 Trust boundary: delegates and verifiers are trusted local operator selections, not
 an OS sandbox. Explicit env_names (including credential names) are operator
@@ -598,9 +599,10 @@ func composeLoadImplementation(path string) (ImplementationRequest, error) {
 		impl.OutputDir = canon
 	}
 	// DelegateArgv and VerifyCommand are preserved byte-for-byte. Only argv[0]
-	// is resolved at execution time (see composeResolveAbsoluteArgv). Relative
-	// script/data arguments resolve against the child cwd (workspace) or must
-	// be authored as absolute paths by the operator.
+	// is resolved at execution time (see composeResolveAbsoluteArgv). Bare
+	// argv[0] uses PATH; explicit ./script or absolute workspace paths select
+	// workspace executables. Relative script/data arguments resolve against the
+	// child cwd (workspace) or must be authored as absolute paths by the operator.
 	return impl, nil
 }
 

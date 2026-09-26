@@ -145,3 +145,15 @@ Run F0 once, then three independent L1–L3 worktrees. Join real implementations
 The next decision gate is the seven-day Zatiti voice-note preview plus one subsequent change, with the agreed Codex allowance and lower-cost assistance. Measure user supervision, correctness, elapsed time, known provider cost, unknown accounting, and maintenance effort. Compare bounded replacement against targeted edits on equivalent requirements; do not infer superiority from greenfield generation speed alone.
 
 Live peer-product adapters, remote review authentication, stronger sandboxing, AMSL publication, and a production decision-model choice require their own concrete contracts and qualification. Fanisi v1 supplies a reviewable local composition/delegation boundary; it does not by itself establish end-to-end autonomous app delivery.
+
+## 11. Authorized review and merge follow-up
+
+The user subsequently requested review and merge. The review branch integrates
+current native main and resolves three review blockers: special-file snapshots,
+verifier command resolution/protection and idempotency-key collisions. Human
+review rechecks automatically protected verifier paths. The merge qualification
+in [validation](validation.md) records the full combined suite and smoke results.
+Publish the curated implementation and documentation through a PR, require green
+Linux/macOS CI for its exact head, then merge that head. Raw research and local
+agent coordination logs remain unpublished. Product acceptance and deployment
+remain separate from merging the Fanisi implementation.

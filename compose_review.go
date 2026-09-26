@@ -114,8 +114,19 @@ func recordCompositionReview(journalDir string, r CompositionReview) error {
 }
 
 func composeRecheckReviewEvidence(ctx context.Context, journalDir string, req ImplementationRequest, result AttemptResult) error {
+	// Trusted pre-dispatch snapshot carries the exact protected path set used at
+	// admission, including any workspace verifier path frozen outside configured
+	// ProtectedPaths. Review must recheck that set against immutable result hashes.
+	var pre composeAttemptSnapshots
+	if err := readStrictJSON(filepath.Join(composeAttemptDir(journalDir, req.AttemptID), "snapshots", "pre.json"), &pre); err != nil {
+		return err
+	}
+	protectedPaths := make([]string, 0, len(pre.ProtectedHashes))
+	for p := range pre.ProtectedHashes {
+		protectedPaths = append(protectedPaths, p)
+	}
 	readOnly := composeReadOnlyPaths(req.ReadPaths, req.WritePaths)
-	allowed := composeUniquePaths(append(append(append([]string{}, req.ReadPaths...), req.WritePaths...), req.ProtectedPaths...))
+	allowed := composeUniquePaths(append(append(append([]string{}, req.ReadPaths...), req.WritePaths...), append(append([]string{}, req.ProtectedPaths...), protectedPaths...)...))
 	source, err := composeSnapshotRelFiles(req.Workspace, readOnly, allowed)
 	if err != nil {
 		return err
@@ -123,7 +134,7 @@ func composeRecheckReviewEvidence(ctx context.Context, journalDir string, req Im
 	if changed(result.SourceHashes, source) {
 		return errors.New("read-only source hashes changed since verification")
 	}
-	protected, err := composeSnapshotRelFiles(req.Workspace, req.ProtectedPaths, allowed)
+	protected, err := composeSnapshotRelFiles(req.Workspace, protectedPaths, allowed)
 	if err != nil {
 		return err
 	}
@@ -136,10 +147,6 @@ func composeRecheckReviewEvidence(ctx context.Context, journalDir string, req Im
 	}
 	if changed(result.FinalWriteHashes, writes) {
 		return errors.New("candidate write hashes changed since verification")
-	}
-	var pre composeAttemptSnapshots
-	if err := readStrictJSON(filepath.Join(composeAttemptDir(journalDir, req.AttemptID), "snapshots", "pre.json"), &pre); err != nil {
-		return err
 	}
 	gitSnap, err := composeCaptureGit(ctx, req.Workspace)
 	if err != nil {

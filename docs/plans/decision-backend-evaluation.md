@@ -42,6 +42,6 @@ Stop on any unauthorized scope/promotion attempt reaching execution, corpus leak
 
 ## Evidence and limitations
 
-Historical strict accuracy tied at 56/60 repeated trials for both models. Jev's speed/cost advantage used uncontrolled GLM routing; its low-confidence errors included missing audio-provenance clarification. The unchanged-GLM reliability follow-up improved real output contracts; it did not establish a hybrid pipeline. [Local evidence](<../../research_notes/Fanisi composition RFC/jev-local-evidence.md>), [provider evidence](<../../research_notes/Fanisi composition RFC/jev-provider-evidence.md>).
+Historical strict accuracy tied at 56/60 repeated trials for both models. Jev's speed/cost advantage used uncontrolled GLM routing; its low-confidence errors included missing audio-provenance clarification. The unchanged-GLM reliability follow-up improved real output contracts; it did not establish a hybrid pipeline. Local evidence (historical local research record; not published), provider evidence (historical local research record; not published).
 
 Report qualification facts, requested/resolved pins, schema validity, semantic fit, false shared admissions, missed reuse, abstention, consistency, timeout/fallback, p50/p95, known/unknown cost and reviewer minutes. The seven-day product outcome, classifier pilot and eventual shared-library adoption remain distinct evaluations.

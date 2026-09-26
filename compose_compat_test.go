@@ -71,7 +71,7 @@ func TestComposeCompatWorkspaceSymlinkExecutableRejected(t *testing.T) {
 	if err := os.Symlink("/bin/sh", evil); err != nil {
 		t.Fatal(err)
 	}
-	_, err = composeResolveAbsoluteArgv([]string{"evil.sh"}, wsCanon)
+	_, err = composeResolveAbsoluteArgv([]string{"./evil.sh"}, wsCanon)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("want workspace leaf symlink rejection, got %v", err)
 	}
@@ -90,7 +90,7 @@ func TestComposeCompatWorkspaceSymlinkExecutableRejected(t *testing.T) {
 	if err := os.Symlink(outside, bin); err != nil {
 		t.Fatal(err)
 	}
-	_, err = composeResolveAbsoluteArgv([]string{"bin/tool.sh"}, wsCanon)
+	_, err = composeResolveAbsoluteArgv([]string{"./bin/tool.sh"}, wsCanon)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("want symlink-parent rejection, got %v", err)
 	}
@@ -107,12 +107,12 @@ func TestComposeCompatRelativeVerifyStillWorks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := composeResolveAbsoluteArgv([]string{"verify.sh", "--flag=a/b"}, wsCanon)
+	resolved, err := composeResolveAbsoluteArgv([]string{"./verify.sh", "--flag=a/b"}, wsCanon)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasSuffix(resolved[0], string(filepath.Separator)+"verify.sh") {
-		t.Fatalf("expected workspace verify.sh, got %#v", resolved)
+		t.Fatalf("expected workspace ./verify.sh, got %#v", resolved)
 	}
 	if resolved[1] != "--flag=a/b" {
 		t.Fatalf("argv literal rewritten: %#v", resolved)
@@ -120,6 +120,50 @@ func TestComposeCompatRelativeVerifyStillWorks(t *testing.T) {
 	info, err := os.Lstat(resolved[0])
 	if err != nil || !info.Mode().IsRegular() {
 		t.Fatalf("verify.sh must stay a regular workspace file: %v", err)
+	}
+}
+
+func TestComposeCompatBareArgv0IgnoresWorkspaceFile(t *testing.T) {
+	root := t.TempDir()
+	ws := filepath.Join(root, "ws")
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(ws, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(bin, 0755); err != nil {
+		t.Fatal(err)
+	}
+	name := "fanisi-bare-argv0-tool"
+	composeTestWriteScript(t, filepath.Join(ws, name), "#!/bin/sh\nexit 0\n")
+	pathTool := filepath.Join(bin, name)
+	composeTestWriteScript(t, pathTool, "#!/bin/sh\nprintf path-hit\nexit 3\n")
+	t.Setenv("PATH", bin)
+	wsCanon, err := composeCanonicalRoot(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := composeResolveAbsoluteArgv([]string{name, "--keep=a/b"}, wsCanon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realPath, err := filepath.EvalSymlinks(pathTool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realResolved, err := filepath.EvalSymlinks(resolved[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if realResolved != realPath {
+		t.Fatalf("bare argv0 must use PATH tool %q, got %q", realPath, realResolved)
+	}
+	if resolved[1] != "--keep=a/b" {
+		t.Fatalf("argv[1+] rewritten: %#v", resolved)
+	}
+	// Old behavior preferred workspace: demonstrate that would differ.
+	wsHit := filepath.Join(wsCanon, name)
+	if realResolved == wsHit {
+		t.Fatal("regression: bare argv0 preferred workspace over PATH")
 	}
 }
 

@@ -1,6 +1,8 @@
 # RFC 0001: AMSL-aware application composition
 
-Status: **Proposed**, 2026-09-26. This document specifies a direction and review gates; it does not authorize implementation, deployment, shared-library promotion or model changes. [ADR](../adr/0001-amsl-composition-and-model-selection.md), [plan](../plan.md), [decision-backend evaluation](../plans/decision-backend-evaluation.md).
+Original proposal status: **Proposed**, 2026-09-26. This document records the direction and review gates; deployment, shared-library promotion and model changes remain separately gated. [ADR](../adr/0001-amsl-composition-and-model-selection.md), [plan](../plan.md), [decision-backend evaluation](../plans/decision-backend-evaluation.md).
+
+Implementation update, 2026-09-26: local composition v1 is implemented under the [implementation plan](../plan.md) and [as-built contract](../plans/fanisi-composition-contract.md). The proposal below records the original investigation; the supervised product trial, live adapters, shared-library promotion and model evaluation remain separate gates. Historical catalog counts describe the investigated revision, not the current catalog.
 
 ## Outcome and scope
 
@@ -12,9 +14,9 @@ Start with session-authored decisions, documented templates and explicit human c
 
 Fanisi already has explicit scope/budgets (`config.go`), complete mandatory packets and hashed optional context (`packet.go`), bounded execution/final verification (`run.go`), frozen worktree comparisons (`eval.go`) and hash-bound agent/human review (`ledger.go`). Reuse these mechanisms; do not rewrite its native loop. Filesystem scope is not an OS sandbox. Existing generation remains `z-ai/glm-5.3-flash` with Z.AI pin; current config has no model selector. Proposed types below are not existing CLI commands or APIs.
 
-The inspected AMSL source has 41 catalog records, approximately 20 core Go families, 13 infrastructure packages and five delivery workflows, with uneven qualification. Catalog validation checks structure and recorded labels, not evidence authenticity or all admission criteria. Source/worklog freshness must be assessed at exact revisions. See [source investigation](<../../reports/AMSL implementation and Fanisi.md>).
+The inspected AMSL source has 41 catalog records, approximately 20 core Go families, 13 infrastructure packages and five delivery workflows, with uneven qualification. Catalog validation checks structure and recorded labels, not evidence authenticity or all admission criteria. Source/worklog freshness must be assessed at exact revisions. See source investigation (historical local research record; not published).
 
-Readiness refreshed 2026-09-26T09:33Z: Griffon now has an initial local identity/billing service, SDK and reference app, with real-provider and production gates pending; earlier research calling it proposal-only is historical. The supplied Foundry checkout still has no commits/source, which says nothing about other workspaces. Zatiti is implemented pre-release with external-worker support; live qualification remains required. [Freshness record](<../../research_notes/Fanisi composition RFC/freshness.md>).
+Readiness refreshed 2026-09-26T09:33Z: Griffon now has an initial local identity/billing service, SDK and reference app, with real-provider and production gates pending; earlier research calling it proposal-only is historical. The supplied Foundry checkout still has no commits/source, which says nothing about other workspaces. Zatiti is implemented pre-release with external-worker support; live qualification remains required. Freshness record (historical local research record; not published).
 
 ## Ownership and dataflow
 

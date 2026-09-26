@@ -602,3 +602,202 @@ func TestComposeVerifierEnvProvidesControlledCaches(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestComposeDispatchFIFOAtWritePathRejectsWithoutVerifier(t *testing.T) {
+	root := t.TempDir()
+	marker := filepath.Join(root, "verifier-ran")
+	fifoHelper := filepath.Join(root, "mkfifo-candidate.sh")
+	composeTestWriteScript(t, fifoHelper, "#!/bin/sh\nrm -f candidate.txt\nmkfifo candidate.txt\n")
+	b, impl := composeTestBundleAndImpl(t, root, func(_ *CompositionRequest, implReq *ImplementationRequest, _ map[string]string) {
+		if implReq == nil {
+			return
+		}
+		implReq.DelegateArgv = []string{fifoHelper}
+		wrapped := filepath.Join(root, "mark-verify.sh")
+		composeTestWriteScript(t, wrapped, "#!/bin/sh\ntouch '"+marker+"'\nexit 0\n")
+		implReq.VerifyCommand = []string{wrapped}
+	})
+
+	done := make(chan struct {
+		res AttemptResult
+		err error
+	}, 1)
+	go func() {
+		res, err := dispatchComposition(context.Background(), b, impl, filepath.Join(root, "journal"))
+		done <- struct {
+			res AttemptResult
+			err error
+		}{res, err}
+	}()
+	select {
+	case out := <-done:
+		if out.res.State == AttemptVerifiedPendingReview {
+			t.Fatalf("FIFO write must not verify: %+v", out.res)
+		}
+		if out.res.State != AttemptFailedTerminal && out.res.State != AttemptBlockedUncertain {
+			t.Fatalf("want terminal failure/uncertain, got %s err=%v msg=%q", out.res.State, out.err, out.res.Error)
+		}
+		msg := out.res.Error
+		if out.err != nil {
+			msg = msg + " " + out.err.Error()
+		}
+		if !strings.Contains(msg, "regular file") {
+			t.Fatalf("want regular-file refusal, got state=%s msg=%q err=%v", out.res.State, out.res.Error, out.err)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatal("verifier must not execute when write-path snapshot hits FIFO")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("dispatch hung on FIFO write-path snapshot; nonblocking regular-file guard failed")
+	}
+}
+
+func TestComposeDispatchPATHVerifierNotHijackedByWorkspaceOutput(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(bin, 0755); err != nil {
+		t.Fatal(err)
+	}
+	name := "fanisi-path-verify"
+	pathVerify := filepath.Join(bin, name)
+	composeTestWriteScript(t, pathVerify, "#!/bin/sh\nprintf 'real-path-verifier\n'\nexit 7\n")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	b, impl := composeTestBundleAndImpl(t, root, func(req *CompositionRequest, implReq *ImplementationRequest, _ map[string]string) {
+		if req != nil {
+			req.WritePaths = []string{"candidate.txt", name}
+			req.ReadPaths = []string{"readonly.txt", "candidate.txt"}
+			req.ProtectedPaths = []string{"protected/accept.md", "verify.sh"}
+		}
+		if implReq == nil {
+			return
+		}
+		fake := filepath.Join(root, "hijack.sh")
+		composeTestWriteScript(t, fake, "#!/bin/sh\nprintf 'new' > candidate.txt\nprintf '#!/bin/sh\\nexit 0\\n' > '"+name+"'\nchmod 0700 '"+name+"'\n")
+		implReq.WritePaths = []string{"candidate.txt", name}
+		implReq.ReadPaths = []string{"readonly.txt", "candidate.txt"}
+		implReq.ProtectedPaths = []string{"protected/accept.md", "verify.sh"}
+		implReq.DelegateArgv = []string{fake}
+		implReq.VerifyCommand = []string{name, "--flag=a/b"}
+	})
+
+	result, err := dispatchComposition(context.Background(), b, impl, filepath.Join(root, "journal"))
+	if err != nil && result.AttemptID == "" {
+		t.Fatalf("dispatch error: %v", err)
+	}
+	if result.State == AttemptVerifiedPendingReview {
+		t.Fatalf("workspace fake %s must not produce verified state", name)
+	}
+	if result.State != AttemptFailedTerminal {
+		t.Fatalf("want failed_terminal from real PATH verifier, got %s (%q)", result.State, result.Error)
+	}
+	if result.VerifierExit != 7 {
+		t.Fatalf("want real PATH verifier exit 7, got %d (%q)", result.VerifierExit, result.Error)
+	}
+	logPath := filepath.Join(impl.OutputDir, "verifier-cache", "verifier.log")
+	body, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		t.Fatalf("want verifier log from real PATH tool: %v", readErr)
+	}
+	if !strings.Contains(string(body), "real-path-verifier") {
+		t.Fatalf("real PATH verifier not observed in log %q", body)
+	}
+	if strings.Contains(result.Error, "verifier exit 7") == false && result.VerifierExit != 7 {
+		t.Fatalf("expected verifier failure evidence, got %q", result.Error)
+	}
+}
+
+func TestComposeSafeFileTokenDistinctKeys(t *testing.T) {
+	// Old lossy mapper collapsed punctuation and truncated long equal-prefix keys.
+	lossy := func(s string) string {
+		var b strings.Builder
+		for _, r := range s {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+				b.WriteRune(r)
+			} else {
+				b.WriteByte('_')
+			}
+		}
+		out := b.String()
+		if out == "" {
+			return digest([]byte(s))
+		}
+		if len(out) > 120 {
+			return out[:120]
+		}
+		return out
+	}
+	a, bKey := "parent|hash|x:y", "parent|hash|x/y"
+	if lossy(a) != lossy(bKey) {
+		t.Fatal("legacy lossy mapper fixture broken; expected punctuation collision")
+	}
+	if composeSafeFileToken(a) == composeSafeFileToken(bKey) {
+		t.Fatalf("hashed tokens must differ for %q vs %q", a, bKey)
+	}
+	longA := strings.Repeat("k", 130) + ":A"
+	longB := strings.Repeat("k", 130) + "/B"
+	if lossy(longA) != lossy(longB) {
+		t.Fatalf("legacy fixture: want truncation collision, got %q vs %q", lossy(longA), lossy(longB))
+	}
+	if composeSafeFileToken(longA) == composeSafeFileToken(longB) {
+		t.Fatal("hashed tokens must differ for long equal-prefix keys")
+	}
+	if composeSafeFileToken(a) != composeSafeFileToken(a) {
+		t.Fatal("token must be stable for identical replay")
+	}
+}
+
+func TestComposeDispatchIdempotencyPunctuationKeysIndependent(t *testing.T) {
+	root := t.TempDir()
+	b, impl := composeTestBundleAndImpl(t, root, nil)
+	journal := filepath.Join(root, "journal")
+	impl.IdempotencyKey = "parent|hash|x:y"
+	first, err := dispatchComposition(context.Background(), b, impl, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.State != AttemptVerifiedPendingReview {
+		t.Fatalf("first: %s %q", first.State, first.Error)
+	}
+	// Same key + same payload: observational replay.
+	replay, err := dispatchComposition(context.Background(), b, impl, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.ContentSHA256 != first.ContentSHA256 {
+		t.Fatal("identical key/payload must replay")
+	}
+	// Distinct punctuation key must not collide with the first record.
+	impl2 := impl
+	impl2.AttemptID = "att-punct"
+	impl2.FenceToken = "fence-punct"
+	impl2.IdempotencyKey = "parent|hash|x/y"
+	impl2.OutputDir = filepath.Join(root, "output-punct")
+	if err := os.WriteFile(filepath.Join(impl.Workspace, "candidate.txt"), []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "checkout", "--", "candidate.txt")
+	cmd.Dir = impl.Workspace
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git checkout: %v\n%s", err, out)
+	}
+	second, err := dispatchComposition(context.Background(), b, impl2, journal)
+	if err != nil {
+		t.Fatalf("distinct punctuation key must admit independently: %v", err)
+	}
+	if second.AttemptID == first.AttemptID {
+		t.Fatal("punctuation keys collided onto same attempt")
+	}
+	if second.State != AttemptVerifiedPendingReview {
+		t.Fatalf("second: %s %q", second.State, second.Error)
+	}
+	impl3 := impl
+	impl3.AttemptID = "att-conflict"
+	impl3.FenceToken = "fence-conflict"
+	impl3.Owner = "other"
+	impl3.IdempotencyKey = "parent|hash|x:y"
+	_, err = dispatchComposition(context.Background(), b, impl3, journal)
+	if err == nil || !strings.Contains(err.Error(), "idempotency") {
+		t.Fatalf("want payload conflict on same key, got %v", err)
+	}
+}

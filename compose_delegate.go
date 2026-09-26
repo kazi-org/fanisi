@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -164,10 +166,13 @@ func composeRunIndependentVerifier(ctx context.Context, workspace string, verify
 // composeResolveAbsoluteArgv resolves only argv[0] to an absolute executable
 // path. Remaining argv elements are preserved byte-for-byte (literals, URLs,
 // flags like --output=dir/file, and shell/Python snippets must not be rewritten).
-// Relative argv[0] is resolved against workspace when that path exists (any
-// file type); otherwise LookPath is used. The child process cwd is workspace.
 //
-// Workspace-scoped executables (relative hits or absolute paths inside the
+// Bare argv[0] (no path separator) uses ordinary exec.LookPath PATH semantics
+// and never prefers a same-named file in the workspace. Workspace scripts must
+// be explicit: "./verify.sh" or an absolute workspace path. Relative paths with
+// a separator resolve against workspace. The child process cwd is workspace.
+//
+// Workspace-scoped executables (explicit relative or absolute paths inside the
 // workspace) reject every symlink component—including parents—so protected
 // scripts cannot be swapped via links. Operator-selected external executables
 // (absolute outside workspace or PATH tools) are trusted and EvalSymlinks'd to
@@ -192,22 +197,22 @@ func composeResolveAbsoluteArgv(argv []string, workspace string) ([]string, erro
 	first := argv[0]
 	if !filepath.IsAbs(first) {
 		resolved := ""
-		if ws != "" {
-			candidate := filepath.Join(ws, first)
-			if _, err := os.Lstat(candidate); err == nil {
-				abs, err := filepath.Abs(candidate)
-				if err != nil {
-					return nil, err
-				}
-				resolved = abs
-			}
-		}
-		if resolved == "" {
+		if composeArgv0IsBare(first) {
 			looked, err := exec.LookPath(first)
 			if err != nil {
 				return nil, fmt.Errorf("resolve executable %q: %w", first, err)
 			}
 			abs, err := filepath.Abs(looked)
+			if err != nil {
+				return nil, err
+			}
+			resolved = abs
+		} else {
+			if ws == "" {
+				return nil, fmt.Errorf("resolve executable %q: workspace is required for relative paths", first)
+			}
+			candidate := filepath.Join(ws, first)
+			abs, err := filepath.Abs(candidate)
 			if err != nil {
 				return nil, err
 			}
@@ -254,6 +259,36 @@ func composeResolveAbsoluteArgv(argv []string, workspace string) ([]string, erro
 	}
 	out := append([]string{first}, argv[1:]...)
 	return out, nil
+}
+
+// composeArgv0IsBare reports whether argv[0] has no path separator, matching
+// ordinary exec LookPath semantics (PATH search) rather than a relative file.
+func composeArgv0IsBare(name string) bool {
+	if name == "" {
+		return true
+	}
+	if strings.Contains(name, "/") {
+		return false
+	}
+	if filepath.Separator != '/' && strings.ContainsRune(name, filepath.Separator) {
+		return false
+	}
+	return true
+}
+
+// composeWorkspaceRelExecutable returns the workspace-relative path for an
+// absolute executable that maps inside workspace, without following symlink
+// components below the workspace root.
+func composeWorkspaceRelExecutable(absExe, workspace string) (string, bool) {
+	mapped, inside := composeMapAbsInsideWorkspace(absExe, workspace)
+	if !inside {
+		return "", false
+	}
+	rel, err := filepath.Rel(filepath.Clean(workspace), mapped)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.Clean(rel), true
 }
 
 // composeMapAbsInsideWorkspace maps absPath into the canonical workspace when
@@ -485,7 +520,7 @@ func composeSnapshotRelFiles(workspace string, rels, allowed []string) (map[stri
 		if err != nil {
 			return nil, err
 		}
-		b, err := os.ReadFile(path)
+		sum, err := composeHashRegularFile(path)
 		if errors.Is(err, os.ErrNotExist) {
 			result[name] = "missing"
 			continue
@@ -493,9 +528,45 @@ func composeSnapshotRelFiles(workspace string, rels, allowed []string) (map[stri
 		if err != nil {
 			return nil, err
 		}
-		result[name] = digest(b)
+		result[name] = sum
 	}
 	return result, nil
+}
+
+// composeHashRegularFile opens path with O_RDONLY|O_NONBLOCK|O_NOFOLLOW, then
+// fstats the fd and streams a SHA-256 digest for regular files only. Nonregular
+// files (FIFOs, devices, directories) and symlink leaves are rejected without a
+// blocking open/read. Missing paths return os.ErrNotExist for the missing
+// sentinel. The open+fstat sequence closes the Lstat/open race that could turn
+// a declared output into a FIFO between check and read.
+func composeHashRegularFile(path string) (string, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		if errors.Is(err, syscall.ENOENT) || errors.Is(err, os.ErrNotExist) {
+			return "", os.ErrNotExist
+		}
+		// O_NOFOLLOW on a symlink leaf typically yields ELOOP.
+		if errors.Is(err, syscall.ELOOP) {
+			return "", fmt.Errorf("%s: symlinks are not allowed", path)
+		}
+		return "", err
+	}
+	f := os.NewFile(uintptr(fd), path)
+	defer f.Close()
+
+	st, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !st.Mode().IsRegular() {
+		return "", fmt.Errorf("%s: must be a regular file", path)
+	}
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func composeUniquePaths(in []string) []string {

@@ -204,11 +204,36 @@ func dispatchComposition(ctx context.Context, b CompositionBundle, impl Implemen
 
 	readOnly := composeReadOnlyPaths(impl.ReadPaths, impl.WritePaths)
 	scopeAllowed := composeUniquePaths(append(append(append([]string{}, impl.ReadPaths...), impl.WritePaths...), impl.ProtectedPaths...))
+
+	// Resolve/freeze verifier argv0 before the delegate so a worker cannot
+	// hijack bare PATH names via allowed outputs, and so workspace scripts are
+	// pinned to the pre-delegation absolute path. argv[1:] stay literals.
+	frozenVerify, err := composeResolveAbsoluteArgv(impl.VerifyCommand, impl.Workspace)
+	if err != nil {
+		return composeFinalizeAttempt(j, impl, nil, nil, nil, -1, "", AttemptBlockedUncertain, true, err.Error(), UsageKnown{})
+	}
+	integrityProtected := append([]string{}, impl.ProtectedPaths...)
+	if rel, ok := composeWorkspaceRelExecutable(frozenVerify[0], impl.Workspace); ok {
+		covered := false
+		for _, p := range integrityProtected {
+			if filepath.Clean(p) == filepath.Clean(rel) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			// Freeze hash via the same protected snapshot path; reject edits
+			// before verifier execution. Scope must include the path.
+			integrityProtected = append(integrityProtected, rel)
+			scopeAllowed = composeUniquePaths(append(scopeAllowed, rel))
+		}
+	}
+
 	sourceHashes, err := composeSnapshotRelFiles(impl.Workspace, readOnly, scopeAllowed)
 	if err != nil {
 		return composeFinalizeAttempt(j, impl, nil, nil, nil, -1, "", AttemptBlockedUncertain, true, err.Error(), UsageKnown{})
 	}
-	protectedHashes, err := composeSnapshotRelFiles(impl.Workspace, impl.ProtectedPaths, scopeAllowed)
+	protectedHashes, err := composeSnapshotRelFiles(impl.Workspace, integrityProtected, scopeAllowed)
 	if err != nil {
 		return composeFinalizeAttempt(j, impl, sourceHashes, nil, nil, -1, "", AttemptBlockedUncertain, true, err.Error(), UsageKnown{})
 	}
@@ -256,14 +281,14 @@ func dispatchComposition(ctx context.Context, b CompositionBundle, impl Implemen
 
 	canceled := composeAttemptCanceled(attemptCtx, attemptDir, impl.FenceToken, exitCode)
 
-	if err := composeCheckIntegrity(attemptCtx, impl, gitSnap, sourceHashes, protectedHashes, readOnly, scopeAllowed, "before verifier"); err != nil {
+	if err := composeCheckIntegrity(attemptCtx, impl, gitSnap, sourceHashes, protectedHashes, integrityProtected, readOnly, scopeAllowed, "before verifier"); err != nil {
 		state := AttemptFailedTerminal
 		unresolved := false
 		if canceled || composeCtxInterrupted(attemptCtx, err) {
 			state = AttemptBlockedUncertain
 			unresolved = true
 		}
-		postSource, postProt, _ := composeCurrentHashes(impl, readOnly, scopeAllowed)
+		postSource, postProt, _ := composeCurrentHashes(impl, integrityProtected, readOnly, scopeAllowed)
 		return composeFinalizeAttempt(j, impl, postSource, postProt, nil, exitCode, "", state, unresolved, err.Error(), usage)
 	}
 
@@ -272,24 +297,24 @@ func dispatchComposition(ctx context.Context, b CompositionBundle, impl Implemen
 		if delErr != nil {
 			msg = delErr.Error()
 		}
-		postSource, postProt, _ := composeCurrentHashes(impl, readOnly, scopeAllowed)
+		postSource, postProt, _ := composeCurrentHashes(impl, integrityProtected, readOnly, scopeAllowed)
 		return composeFinalizeAttempt(j, impl, postSource, postProt, nil, exitCode, "", AttemptBlockedUncertain, true, msg, usage)
 	}
 	if delErr != nil {
-		postSource, postProt, _ := composeCurrentHashes(impl, readOnly, scopeAllowed)
+		postSource, postProt, _ := composeCurrentHashes(impl, integrityProtected, readOnly, scopeAllowed)
 		return composeFinalizeAttempt(j, impl, postSource, postProt, nil, exitCode, "", AttemptBlockedUncertain, true, delErr.Error(), usage)
 	}
 	if exitCode != 0 {
-		postSource, postProt, _ := composeCurrentHashes(impl, readOnly, scopeAllowed)
+		postSource, postProt, _ := composeCurrentHashes(impl, integrityProtected, readOnly, scopeAllowed)
 		return composeFinalizeAttempt(j, impl, postSource, postProt, nil, exitCode, "", AttemptFailedTerminal, false, fmt.Sprintf("delegate exit %d", exitCode), usage)
 	}
 
 	verifyCache := filepath.Join(impl.OutputDir, "verifier-cache")
 	if err := os.MkdirAll(verifyCache, 0700); err != nil {
-		postSource, postProt, _ := composeCurrentHashes(impl, readOnly, scopeAllowed)
+		postSource, postProt, _ := composeCurrentHashes(impl, integrityProtected, readOnly, scopeAllowed)
 		return composeFinalizeAttempt(j, impl, postSource, postProt, nil, exitCode, "", AttemptBlockedUncertain, true, err.Error(), usage)
 	}
-	partial, verErr := composeRunIndependentVerifier(attemptCtx, impl.Workspace, impl.VerifyCommand, impl.WritePaths, impl.ProtectedPaths, impl.EnvNames, verifyCache)
+	partial, verErr := composeRunIndependentVerifier(attemptCtx, impl.Workspace, frozenVerify, impl.WritePaths, integrityProtected, impl.EnvNames, verifyCache)
 	finalWrites := partial.FinalWriteHashes
 	finalProt := partial.ProtectedHashes
 
@@ -299,27 +324,27 @@ func dispatchComposition(ctx context.Context, b CompositionBundle, impl Implemen
 		if verErr != nil {
 			msg = verErr.Error()
 		}
-		postSource, postProt, _ := composeCurrentHashes(impl, readOnly, scopeAllowed)
+		postSource, postProt, _ := composeCurrentHashes(impl, integrityProtected, readOnly, scopeAllowed)
 		if finalProt == nil {
 			finalProt = postProt
 		}
 		return composeFinalizeAttempt(j, impl, postSource, finalProt, finalWrites, partial.VerifierExit, partial.VerifierLogSHA, AttemptBlockedUncertain, true, msg, usage)
 	}
 
-	if err := composeCheckIntegrity(attemptCtx, impl, gitSnap, sourceHashes, protectedHashes, readOnly, scopeAllowed, "after verifier"); err != nil {
+	if err := composeCheckIntegrity(attemptCtx, impl, gitSnap, sourceHashes, protectedHashes, integrityProtected, readOnly, scopeAllowed, "after verifier"); err != nil {
 		state := AttemptFailedTerminal
 		unresolved := false
 		if composeAttemptCanceled(attemptCtx, attemptDir, impl.FenceToken, partial.VerifierExit) || composeCtxInterrupted(attemptCtx, err) {
 			state = AttemptBlockedUncertain
 			unresolved = true
 		}
-		postSource, postProt, _ := composeCurrentHashes(impl, readOnly, scopeAllowed)
+		postSource, postProt, _ := composeCurrentHashes(impl, integrityProtected, readOnly, scopeAllowed)
 		if finalProt == nil {
 			finalProt = postProt
 		}
 		return composeFinalizeAttempt(j, impl, postSource, finalProt, finalWrites, partial.VerifierExit, partial.VerifierLogSHA, state, unresolved, err.Error(), usage)
 	}
-	postSource2, postProt2, err := composeCurrentHashes(impl, readOnly, scopeAllowed)
+	postSource2, postProt2, err := composeCurrentHashes(impl, integrityProtected, readOnly, scopeAllowed)
 	if err != nil {
 		return composeFinalizeAttempt(j, impl, postSource2, postProt2, finalWrites, partial.VerifierExit, partial.VerifierLogSHA, AttemptBlockedUncertain, true, err.Error(), usage)
 	}
@@ -784,7 +809,7 @@ func composeRequireCleanGit(snap composeGitSnapshot) error {
 	return nil
 }
 
-func composeCheckIntegrity(ctx context.Context, impl ImplementationRequest, baseline composeGitSnapshot, sourceHashes, protectedHashes map[string]string, readOnly, scopeAllowed []string, when string) error {
+func composeCheckIntegrity(ctx context.Context, impl ImplementationRequest, baseline composeGitSnapshot, sourceHashes, protectedHashes map[string]string, protectedPaths, readOnly, scopeAllowed []string, when string) error {
 	postGit, err := composeCaptureGit(ctx, impl.Workspace)
 	if err != nil {
 		return err
@@ -802,7 +827,7 @@ func composeCheckIntegrity(ctx context.Context, impl ImplementationRequest, base
 	if changed(sourceHashes, postSource) {
 		return fmt.Errorf("read-only source paths changed %s", when)
 	}
-	postProtected, err := composeSnapshotRelFiles(impl.Workspace, impl.ProtectedPaths, scopeAllowed)
+	postProtected, err := composeSnapshotRelFiles(impl.Workspace, protectedPaths, scopeAllowed)
 	if err != nil {
 		return err
 	}
@@ -818,12 +843,12 @@ func composeCheckIntegrity(ctx context.Context, impl ImplementationRequest, base
 	return nil
 }
 
-func composeCurrentHashes(impl ImplementationRequest, readOnly, scopeAllowed []string) (source, protected map[string]string, err error) {
+func composeCurrentHashes(impl ImplementationRequest, protectedPaths, readOnly, scopeAllowed []string) (source, protected map[string]string, err error) {
 	source, err = composeSnapshotRelFiles(impl.Workspace, readOnly, scopeAllowed)
 	if err != nil {
 		return nil, nil, err
 	}
-	protected, err = composeSnapshotRelFiles(impl.Workspace, impl.ProtectedPaths, scopeAllowed)
+	protected, err = composeSnapshotRelFiles(impl.Workspace, protectedPaths, scopeAllowed)
 	return source, protected, err
 }
 
@@ -916,20 +941,7 @@ func composeCancelRequested(attemptDir, fence string) bool {
 }
 
 func composeSafeFileToken(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('_')
-		}
-	}
-	out := b.String()
-	if out == "" {
-		return digest([]byte(s))
-	}
-	if len(out) > 120 {
-		return out[:120]
-	}
-	return out
+	// Full-key digest: lossy punctuation collapsing and truncation would map
+	// distinct idempotency keys onto the same filename.
+	return digest([]byte(s))
 }

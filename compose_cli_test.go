@@ -674,7 +674,7 @@ func TestComposeCLILoadPreservesArgvLiterals(t *testing.T) {
 		Owner:           "operator",
 		WritePaths:      []string{"candidate.txt"},
 		ProtectedPaths:  []string{"verify.sh"},
-		VerifyCommand:   []string{"verify.sh"}, // relative; resolves against workspace at exec
+		VerifyCommand:   []string{"./verify.sh"}, // explicit workspace-relative; not bare PATH
 		DelegateArgv:    []string{"/bin/sh", "-c", literal, flagArg, urlArg},
 		Workspace:       wsCanon,
 		OutputDir:       out,
@@ -695,11 +695,11 @@ func TestComposeCLILoadPreservesArgvLiterals(t *testing.T) {
 	if loaded.DelegateArgv[2] != literal || loaded.DelegateArgv[3] != flagArg || loaded.DelegateArgv[4] != urlArg {
 		t.Fatalf("slash-bearing literals corrupted: %#v", loaded.DelegateArgv)
 	}
-	if loaded.VerifyCommand[0] != "verify.sh" {
+	if loaded.VerifyCommand[0] != "./verify.sh" {
 		t.Fatalf("relative verifier path rewritten: %#v", loaded.VerifyCommand)
 	}
 
-	// Execution resolves relative verify.sh against workspace and keeps argv literals.
+	// Execution resolves ./verify.sh against workspace and keeps argv literals.
 	code, _, err := runDelegate(context.Background(), DelegateConfig{
 		Argv:       []string{"/bin/sh", "-c", "printf new > candidate.txt"},
 		Workspace:  wsCanon,
@@ -709,12 +709,12 @@ func TestComposeCLILoadPreservesArgvLiterals(t *testing.T) {
 	if err != nil || code != 0 {
 		t.Fatalf("delegate: code=%d err=%v", code, err)
 	}
-	resolved, err := composeResolveAbsoluteArgv([]string{"verify.sh"}, wsCanon)
+	resolved, err := composeResolveAbsoluteArgv([]string{"./verify.sh"}, wsCanon)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasSuffix(resolved[0], string(filepath.Separator)+"verify.sh") && !strings.HasSuffix(resolved[0], "/verify.sh") {
-		t.Fatalf("expected workspace-relative verify.sh resolution, got %#v", resolved)
+		t.Fatalf("expected workspace-relative ./verify.sh resolution, got %#v", resolved)
 	}
 	if len(resolved) != 1 {
 		t.Fatalf("argv[1+] must not be invented: %#v", resolved)
