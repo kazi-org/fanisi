@@ -101,6 +101,49 @@ executes repository code locally. Other editors do not honor Fanisi's lock.
 The evaluation runner detects tracked and untracked changes outside scope after
 execution; the standalone run command does not provide that repository-wide check.
 
+## Offline composition (local JSON + journal)
+
+Composition pins an offline AMSL (or normalized) catalog, validates versioned
+request/decision/manifest records, imports finite-choice decisions, dispatches a
+bounded local delegate with an independent verifier, and records attempts in a
+local journal. Native `run` model/provider defaults are unchanged. There is no
+automatic retry, no agent-only acceptance, and no remote peer-product adapters.
+
+Trust boundary: delegates and verifiers are trusted local operator selections, not
+an OS sandbox. Human review identity is the local CLI invoker attribution string.
+Unknown provider usage stays nil/false. Cancel/timeout yields `blocked_uncertain`
+and retains reservation; recovery is explicit operator action.
+
+```sh
+# Inspect the offline AMSL-shaped fixture catalog (relative path from repo root):
+go run . compose catalog --index testdata/compose/catalog/index.json --json
+
+# Runnable throwaway tutorial (creates a fresh Git product workspace under a path you choose):
+sh examples/compose/run-tutorial.sh /tmp/fanisi-compose-demo
+```
+
+Artifact paths on the CLI resolve beside the primary config file for that command
+(`--request`, `--index`, or `--file`). `Workspace` / output fields inside JSON also
+resolve beside their owning file; read/write/protected scope paths stay
+workspace-relative. Delegate and verifier argv is preserved byte-for-byte except
+`argv[0]` executable resolution at execution time (child cwd is the workspace;
+relative scripts resolve there). `env_names` is an operator opt-in allowlist of
+environment variable *names* (PATH/TMPDIR plus those names). Credential-bearing
+names such as `OPENROUTER_API_KEY` may be listed explicitly for trusted local
+delegates/verifiers. They are never inherited implicitly or serialized into journal
+records by Fanisi, but a selected process can print them. Set `env_names` only in
+operator-authored implementation requests; finite-choice results do not set it. Native `run`
+/`runCommand` credential stripping is unchanged. `compose hash` resolves the same
+way before hashing so hash → validate → dispatch stay consistent. Canonical hashes
+omit only each record's own `content_sha256`. Platform temp roots (macOS `/var` →
+`/private/var`) are canonicalized before symlink rejection; workspace-relative
+symlink escapes are still rejected. See `fanisi compose --help` and
+[docs/validation.md](docs/validation.md).
+
+Unsupported in this build: remote adapters, provider/model qualification, GLM/Jev
+decision backends, package publish, and cloud deploy. Optional selector evaluation
+remains [docs/plans/decision-backend-evaluation.md](docs/plans/decision-backend-evaluation.md).
+
 ## Inspect usage and evidence
 
 ```sh

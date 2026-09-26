@@ -46,6 +46,7 @@ const usageText = `fanisi - measured software changes
   fanisi import-landing ATTEMPT_DIRECTORY RECORD_JSON
   fanisi report STUDY_DIRECTORY
   fanisi coordinator-usage --from RFC3339 --to RFC3339 TRANSCRIPT_JSONL
+  fanisi compose …   (see: fanisi compose --help)
   fanisi version
 
 Relative config paths resolve beside task.json. Read/write paths resolve in its
@@ -229,6 +230,8 @@ func mainContext(ctx context.Context, args []string) error {
 			return json.NewEncoder(os.Stdout).Encode(map[string]any{"schema_version": schemaVersion, "model": model, "workspace": root, "packet_bytes": len(packet), "packet_sha256": digest(packet), "sections": sections, "dry_run": *dry})
 		}
 		return run(ctx, cfg)
+	case "compose":
+		return composeCommand(ctx, args[1:])
 	}
 	return errors.New("unknown command or arguments; run fanisi --help")
 }

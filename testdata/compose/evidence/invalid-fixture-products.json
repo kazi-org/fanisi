@@ -1,0 +1,21 @@
+[
+  {
+    "id": "ev-bad-fixture",
+    "kind": "B",
+    "product_ids": [
+      "fixture.voice",
+      "fixture.notes"
+    ],
+    "implementation_ids": [
+      "impl.thread.v1"
+    ],
+    "product_kinds": {
+      "fixture.voice": "fixture",
+      "fixture.notes": "fixture"
+    },
+    "source_refs": [
+      "src/fx1",
+      "src/fx2"
+    ]
+  }
+]

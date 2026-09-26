@@ -1,0 +1,21 @@
+[
+  {
+    "id": "ev-bad-worktree",
+    "kind": "B",
+    "product_ids": [
+      "wt.voice",
+      "wt.notes"
+    ],
+    "implementation_ids": [
+      "impl.thread.v1"
+    ],
+    "product_kinds": {
+      "wt.voice": "worktree",
+      "wt.notes": "real"
+    },
+    "source_refs": [
+      "src/w1",
+      "src/w2"
+    ]
+  }
+]

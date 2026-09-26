@@ -1,0 +1,177 @@
+{
+  "capabilities": [
+    {
+      "alternatives": [],
+      "disposition": "EXTRACT",
+      "domain": "compose",
+      "evidence": [
+        {
+          "basis": "synthetic fixture",
+          "verification": "FIXTURE",
+          "visibility": "PUBLIC"
+        }
+      ],
+      "failure_modes": [
+        "Lost id mapping"
+      ],
+      "id": "compose.thread-store",
+      "implementations": [
+        {
+          "revision": "1111111111111111111111111111111111111111",
+          "url": "https://example.invalid/thread@1"
+        },
+        {
+          "revision": "2222222222222222222222222222222222222222",
+          "url": "https://example.invalid/thread@2"
+        }
+      ],
+      "name": "Thread store",
+      "non_goals": [
+        "Message transport"
+      ],
+      "open_questions": [
+        "Second consumer pending"
+      ],
+      "proposed_guarantees": [
+        "Thread id survives restart"
+      ],
+      "schema_version": 1,
+      "status": "CANDIDATE",
+      "summary": "Durable thread identity for voice notes.",
+      "use_when": [
+        "Product needs durable thread ids"
+      ],
+      "verification": [
+        {
+          "evidence_url": "https://example.invalid/thread-verify",
+          "kind": "CONTRACT_TEST",
+          "result": "PASS"
+        }
+      ]
+    },
+    {
+      "alternatives": [],
+      "disposition": "EXTRACT",
+      "domain": "compose",
+      "evidence": [
+        {
+          "basis": "synthetic fixture",
+          "verification": "FIXTURE",
+          "visibility": "PUBLIC"
+        }
+      ],
+      "failure_modes": [
+        "Partial upload"
+      ],
+      "id": "compose.audio-bridge",
+      "implementations": [
+        {
+          "revision": "3333333333333333333333333333333333333333",
+          "url": "https://example.invalid/audio@1"
+        }
+      ],
+      "name": "Audio bridge",
+      "non_goals": [
+        "Codec selection UI"
+      ],
+      "open_questions": [],
+      "proposed_guarantees": [
+        "Capture attempts are idempotent"
+      ],
+      "schema_version": 1,
+      "status": "CANDIDATE",
+      "summary": "Bridge microphone capture to durable audio blobs.",
+      "use_when": [
+        "Async voice capture"
+      ],
+      "verification": []
+    },
+    {
+      "alternatives": [],
+      "disposition": "KEEP",
+      "domain": "identity",
+      "evidence": [],
+      "failure_modes": [
+        "Clock skew"
+      ],
+      "id": "identity.session-token",
+      "implementations": [
+        {
+          "revision": "4444444444444444444444444444444444444444",
+          "url": "https://example.invalid/sess@1"
+        },
+        {
+          "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "url": "https://example.invalid/sess@sha256"
+        }
+      ],
+      "name": "Session token",
+      "non_goals": [
+        "OAuth federation"
+      ],
+      "open_questions": [],
+      "proposed_guarantees": [
+        "Tokens are opaque"
+      ],
+      "schema_version": 1,
+      "status": "CANDIDATE",
+      "summary": "Local session token minting.",
+      "use_when": [
+        "Product needs local session tokens"
+      ],
+      "verification": []
+    },
+    {
+      "alternatives": [],
+      "disposition": "WATCH",
+      "domain": "identity",
+      "evidence": [],
+      "failure_modes": [],
+      "id": "identity.planned-only",
+      "implementations": [],
+      "name": "Planned identity helper",
+      "non_goals": [
+        "Executable reuse"
+      ],
+      "open_questions": [
+        "Needs an implementation revision"
+      ],
+      "proposed_guarantees": [],
+      "schema_version": 1,
+      "status": "DISCOVERED",
+      "summary": "Capability row without implementations for inspection.",
+      "use_when": [
+        "Inspect only"
+      ],
+      "verification": []
+    },
+    {
+      "alternatives": [],
+      "disposition": "WATCH",
+      "domain": "compose",
+      "evidence": [],
+      "failure_modes": [],
+      "id": "compose.mutable-branch",
+      "implementations": [
+        {
+          "revision": "feature/not-a-commit",
+          "url": "https://example.invalid/mutable"
+        }
+      ],
+      "name": "Mutable branch example",
+      "non_goals": [
+        "Production reuse"
+      ],
+      "open_questions": [],
+      "proposed_guarantees": [],
+      "schema_version": 1,
+      "status": "DISCOVERED",
+      "summary": "Has a non-immutable revision label for rejection tests.",
+      "use_when": [
+        "Negative tests"
+      ],
+      "verification": []
+    }
+  ],
+  "schema_version": 1
+}

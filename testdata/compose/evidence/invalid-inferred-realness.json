@@ -1,0 +1,17 @@
+[
+  {
+    "id": "ev-bad-infer-real-name",
+    "kind": "B",
+    "product_ids": [
+      "real-looking-product",
+      "another-real-product"
+    ],
+    "implementation_ids": [
+      "impl.thread.v1"
+    ],
+    "source_refs": [
+      "src/i1",
+      "src/i2"
+    ]
+  }
+]

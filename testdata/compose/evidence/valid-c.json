@@ -1,0 +1,24 @@
+[
+  {
+    "id": "ev-c-session",
+    "kind": "C",
+    "product_ids": [
+      "product.voice",
+      "product.billing"
+    ],
+    "implementation_ids": [
+      "impl.session.mature"
+    ],
+    "mature_implementation_ids": [
+      "impl.session.mature"
+    ],
+    "product_kinds": {
+      "product.voice": "real",
+      "product.billing": "real"
+    },
+    "source_refs": [
+      "src/c1",
+      "src/c2"
+    ]
+  }
+]
