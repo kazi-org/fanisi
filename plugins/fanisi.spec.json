@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "plugin": {
+    "name": "fanisi-compose",
+    "display_name": "Fanisi Compose",
+    "version": "0.1.0",
+    "description": "Inspect, validate, dispatch and track offline Fanisi composition attempts through the installed fanisi CLI.",
+    "author": {
+      "name": "Fanisi contributors"
+    },
+    "keywords": ["composition", "coding-harness", "mcp"]
+  },
+  "cli": {
+    "executable": "fanisi",
+    "install": "Build it from a checkout of the Fanisi repository with `go build -o \"$HOME/.local/bin/fanisi\" .` (any directory on PATH works). No public release is claimed.",
+    "version_probe": {
+      "argv": ["compose", "--help"],
+      "require_output": "fanisi compose dispatch  --request PATH --catalog PATH --evidence PATH --decisions DIR --manifest PATH --impl PATH --journal DIR"
+    }
+  },
+  "skill": {
+    "name": "fanisi-compose",
+    "description": "Drive Fanisi's offline composition workflow (catalog, hash, validate, decide, manifest, dispatch, status, cancel) with the installed fanisi CLI.",
+    "instructions": "# Compose with Fanisi\n\nUse this workflow when the user asks to inspect a composition catalog, hash or validate composition artifacts, import a decision, build an application manifest, dispatch an approved implementation attempt, or check or cancel an attempt. Fanisi is the canonical engine: do not imitate its validation, dispatch or verification in the host model.\n\n## Before calling tools\n\n1. Work in the directory where the host started the MCP server. The primary path of each call (`request`, `index`, `file`, `journal`) resolves against that directory; other artifact paths resolve beside the request file, following Fanisi's own rule. Prefer paths the user gave you.\n2. Use only artifacts the user supplied or approved. Do not author or edit `delegate_argv`, `verify_command`, `env_names`, workspace or scope paths in an ImplementationRequest yourself: those are operator trust decisions.\n3. Never read, print or pass secret values. Fanisi and its delegates use their own configuration.\n\n## Workflow\n\n1. `catalog` lists the offline catalog. `hash` prints the canonical digest of a request, decision, manifest, implementation request or result without modifying files.\n2. `decide` imports a finite-choice result file authored elsewhere (`--import`). The command backend is not exposed.\n3. `manifest` builds an application manifest from an explicit bindings draft and writes it with exclusive create. `validate` checks the whole bundle and prints `ok`.\n4. `dispatch` runs one attempt. Call it only after the user has explicitly approved the exact reviewed request, decisions, manifest and implementation request in this conversation. It executes the delegate named in `delegate_argv`, an arbitrary trusted local program chosen by the operator, which can write the declared write paths, use the network and incur provider charges; then Fanisi runs the independent verifier. Fanisi requires a clean Git workspace whose HEAD equals `product_revision`.\n5. `dispatch` blocks until the attempt finishes or the tool timeout expires. On timeout the MCP server terminates the fanisi process group (SIGTERM first) and Fanisi records `blocked_uncertain`; use `status` to read the recorded state. While a dispatch runs, `status` and `cancel` can be called from separate tool calls.\n6. `cancel` needs the attempt id and fence token from the approved implementation request. A canceled attempt ends `blocked_uncertain` with no automatic retry.\n\n## Results\n\nA successful attempt is `verified_pending_review`, which is not acceptance. Human or agent review (`fanisi compose review`) is intentionally not exposed; ask the user to run it themselves after inspecting the attempt. Report usage and cost only as Fanisi records them; unknown usage stays unknown. Native `fanisi run` (which calls the default paid model) is not available through this plugin.\n"
+  },
+  "limits": {
+    "timeout_seconds": 600,
+    "max_output_bytes": 1048576,
+    "max_concurrent": 4
+  },
+  "tools": [
+    {
+      "name": "catalog",
+      "title": "List composition catalog",
+      "description": "Run `fanisi compose catalog` on an offline catalog index. Optionally filter by family, or look up one capability by id and revision (supply both).",
+      "argv": ["compose", "catalog"],
+      "inputs": [
+        {"name": "index", "type": "string", "flag": "--index", "required": true, "description": "Offline AMSL or normalized catalog JSON path."},
+        {"name": "family", "type": "string", "flag": "--family", "description": "Optional family or domain filter."},
+        {"name": "id", "type": "string", "flag": "--id", "description": "Capability id; requires revision."},
+        {"name": "revision", "type": "string", "flag": "--revision", "description": "Implementation revision; requires id."},
+        {"name": "json", "type": "boolean", "flag": "--json", "description": "Emit JSON."}
+      ],
+      "effects": {"read_only": true, "destructive": false, "idempotent": true, "network": false, "cost": "none", "notes": "Reads the catalog file only."},
+      "timeout_seconds": 60
+    },
+    {
+      "name": "hash",
+      "title": "Hash a composition record",
+      "description": "Run `fanisi compose hash` to print the canonical SHA-256 of one composition record.",
+      "argv": ["compose", "hash"],
+      "inputs": [
+        {"name": "file", "type": "string", "flag": "--file", "required": true, "description": "JSON record to hash."},
+        {"name": "kind", "type": "string", "flag": "--kind", "required": true, "enum": ["request", "decision", "manifest", "impl", "result"], "description": "Record kind."}
+      ],
+      "effects": {"read_only": true, "destructive": false, "idempotent": true, "network": false, "cost": "none", "notes": "Reads the record only; files are not modified."},
+      "timeout_seconds": 60
+    },
+    {
+      "name": "validate",
+      "title": "Validate a composition bundle",
+      "description": "Run `fanisi compose validate` on a request, decisions directory, manifest, catalog and evidence. Prints ok or the first validation error.",
+      "argv": ["compose", "validate"],
+      "inputs": [
+        {"name": "request", "type": "string", "flag": "--request", "required": true, "description": "Composition request JSON."},
+        {"name": "decisions", "type": "string", "flag": "--decisions", "required": true, "description": "Directory of decision JSON files."},
+        {"name": "manifest", "type": "string", "flag": "--manifest", "required": true, "description": "Application manifest JSON."},
+        {"name": "catalog", "type": "string", "flag": "--catalog", "required": true, "description": "Catalog index JSON."},
+        {"name": "evidence", "type": "string", "flag": "--evidence", "required": true, "description": "Evidence JSON array."}
+      ],
+      "effects": {"read_only": true, "destructive": false, "idempotent": true, "network": false, "cost": "none", "notes": "Reads the bundle only."},
+      "timeout_seconds": 60
+    },
+    {
+      "name": "decide",
+      "title": "Import a finite-choice decision",
+      "description": "Run `fanisi compose decide --import` to validate a finite-choice result authored elsewhere against its request. Prints the result, or writes it to out.",
+      "argv": ["compose", "decide"],
+      "inputs": [
+        {"name": "request", "type": "string", "flag": "--request", "required": true, "description": "FiniteChoiceRequest JSON."},
+        {"name": "import", "type": "string", "flag": "--import", "required": true, "description": "FiniteChoiceResult JSON file to import."},
+        {"name": "out", "type": "string", "flag": "--out", "description": "Optional exclusive-create output path, resolved beside the request."}
+      ],
+      "effects": {"read_only": false, "destructive": false, "idempotent": false, "network": false, "cost": "none", "notes": "Writes a new file only when out is given; never overwrites."},
+      "timeout_seconds": 60
+    },
+    {
+      "name": "manifest",
+      "title": "Build an application manifest",
+      "description": "Run `fanisi compose manifest` to build and validate an application manifest from an explicit bindings draft, written with exclusive create.",
+      "argv": ["compose", "manifest"],
+      "inputs": [
+        {"name": "request", "type": "string", "flag": "--request", "required": true, "description": "Composition request JSON."},
+        {"name": "decisions", "type": "string", "flag": "--decisions", "required": true, "description": "Directory of decision JSON files."},
+        {"name": "draft", "type": "string", "flag": "--draft", "required": true, "description": "Explicit bindings and edges draft JSON."},
+        {"name": "out", "type": "string", "flag": "--out", "required": true, "description": "Exclusive-create manifest output path."},
+        {"name": "catalog", "type": "string", "flag": "--catalog", "required": true, "description": "Catalog index JSON."},
+        {"name": "evidence", "type": "string", "flag": "--evidence", "required": true, "description": "Evidence JSON array."}
+      ],
+      "effects": {"read_only": false, "destructive": false, "idempotent": false, "network": false, "cost": "none", "notes": "Writes one new manifest file; never overwrites."},
+      "timeout_seconds": 60
+    },
+    {
+      "name": "dispatch",
+      "title": "Dispatch an approved attempt",
+      "description": "Run `fanisi compose dispatch` for one user-approved implementation request. Executes the operator-chosen delegate and verifier, journals every transition, and prints the attempt result. Blocks until the attempt ends or the tool times out.",
+      "argv": ["compose", "dispatch"],
+      "inputs": [
+        {"name": "request", "type": "string", "flag": "--request", "required": true, "description": "Composition request JSON."},
+        {"name": "catalog", "type": "string", "flag": "--catalog", "required": true, "description": "Catalog index JSON."},
+        {"name": "evidence", "type": "string", "flag": "--evidence", "required": true, "description": "Evidence JSON array."},
+        {"name": "decisions", "type": "string", "flag": "--decisions", "required": true, "description": "Directory of decision JSON files."},
+        {"name": "manifest", "type": "string", "flag": "--manifest", "required": true, "description": "Application manifest JSON."},
+        {"name": "impl", "type": "string", "flag": "--impl", "required": true, "description": "User-approved ImplementationRequest JSON."},
+        {"name": "journal", "type": "string", "flag": "--journal", "required": true, "description": "Attempt journal directory outside the product write paths."}
+      ],
+      "effects": {"read_only": false, "destructive": true, "idempotent": false, "network": true, "cost": "possible", "notes": "Runs an arbitrary trusted delegate named by the approved artifacts. It can modify the declared write paths, use the network and incur provider charges. Fanisi's scope checks are not an OS sandbox, and this wrapper is not an approval engine."},
+      "timeout_seconds": 600
+    },
+    {
+      "name": "status",
+      "title": "Read attempt status",
+      "description": "Run `fanisi compose status` to print recorded attempt results from a journal, optionally for one attempt.",
+      "argv": ["compose", "status"],
+      "inputs": [
+        {"name": "journal", "type": "string", "flag": "--journal", "required": true, "description": "Attempt journal directory."},
+        {"name": "attempt", "type": "string", "flag": "--attempt", "description": "Optional attempt id."}
+      ],
+      "effects": {"read_only": false, "destructive": false, "idempotent": true, "network": false, "cost": "none", "notes": "Reads journal records; creates the empty journal directory layout if it does not exist."},
+      "timeout_seconds": 60
+    },
+    {
+      "name": "cancel",
+      "title": "Cancel a running attempt",
+      "description": "Run `fanisi compose cancel` to request cancellation of one attempt using its fence token. The attempt ends blocked_uncertain with no automatic retry.",
+      "argv": ["compose", "cancel"],
+      "inputs": [
+        {"name": "journal", "type": "string", "flag": "--journal", "required": true, "description": "Attempt journal directory."},
+        {"name": "attempt", "type": "string", "flag": "--attempt", "required": true, "description": "Attempt id."},
+        {"name": "fence", "type": "string", "flag": "--fence", "required": true, "description": "Fence token from the approved implementation request."}
+      ],
+      "effects": {"read_only": false, "destructive": true, "idempotent": false, "network": false, "cost": "none", "notes": "Writes a cancel request that stops in-flight delegate or verifier work, leaving the attempt blocked_uncertain."},
+      "timeout_seconds": 60
+    }
+  ]
+}
