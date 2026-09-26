@@ -50,6 +50,10 @@ func (s *generationStream) capture() error {
 	if !bytes.HasPrefix(s.line, []byte("data:")) {
 		return nil
 	}
+	// OpenRouter may append its non-JSON trailer after the Messages stop event.
+	if bytes.Equal(bytes.TrimSpace(s.line[5:]), []byte("[DONE]")) && s.stopped && len(s.seen) > 0 {
+		return nil
+	}
 	var event struct {
 		Type    string `json:"type"`
 		Message struct {
@@ -72,6 +76,7 @@ func (s *generationStream) capture() error {
 	if !strings.HasPrefix(id, "gen-") || len(id) > 256 || !simpleID(id) {
 		return s.unknown()
 	}
+	s.stopped = false
 	if s.seen[id] {
 		return nil
 	}

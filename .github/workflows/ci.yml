@@ -19,3 +19,4 @@ jobs:
       - run: go test -race ./...
       - run: go build -o bin/fanisi .
       - run: bin/fanisi run --config examples/clamp.task.json --dry-run
+      - run: python3 scripts/release-smoke.py bin/fanisi --expect-version 0.1.0-dev

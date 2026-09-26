@@ -23,7 +23,7 @@ import (
 
 // providerRelay is process-local. It exposes one authenticated loopback endpoint,
 // fixes model/provider routing, and never sends the real API key to the child.
-func providerRelay(key, output string) (endpoint, token string, closeRelay func(), err error) {
+func providerRelay(key, output string, limits ...*ClaudeAdmission) (endpoint, token string, closeRelay func() error, err error) {
 	target, _ := url.Parse("https://openrouter.ai/api")
 	nonce := make([]byte, 32)
 	if _, err = rand.Read(nonce); err != nil {
@@ -34,49 +34,83 @@ func providerRelay(key, output string) (endpoint, token string, closeRelay func(
 	if err != nil {
 		return "", "", nil, err
 	}
-	handler := relayHandler(target, key, token, output, http.DefaultTransport)
+	admission, initErr := relayAdmission(output, limits)
+	if initErr != nil {
+		listener.Close()
+		return "", "", nil, initErr
+	}
+	handler := relayHandlerWithAdmission(target, key, token, output, http.DefaultTransport, admission)
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	go func() { _ = server.Serve(listener) }()
-	return "http://" + listener.Addr().String(), token, func() { _ = server.Close() }, nil
+	return "http://" + listener.Addr().String(), token, func() error { return errors.Join(admission.finish(), server.Close()) }, nil
+}
+
+func relayAdmission(output string, limits []*ClaudeAdmission) (*requestAdmission, error) {
+	if len(limits) > 1 {
+		return nil, errors.New("multiple admission configurations")
+	}
+	if len(limits) == 0 {
+		return nil, nil
+	}
+	return newRequestAdmission(output, limits[0])
 }
 
 func relayHandler(target *url.URL, key, token, output string, transport http.RoundTripper) http.Handler {
+	return relayHandlerWithAdmission(target, key, token, output, transport, nil)
+}
+
+func relayHandlerWithAdmission(target *url.URL, key, token, output string, transport http.RoundTripper, admission *requestAdmission) http.Handler {
 	var count atomic.Uint64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
 			http.Error(w, "unauthorized relay request", http.StatusUnauthorized)
 			return
 		}
+		refuse := func(message string, status int) {
+			if err := admission.refuse(message); err != nil {
+				http.Error(w, "cannot record admission refusal", http.StatusInternalServerError)
+				return
+			}
+			http.Error(w, message, status)
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/messages" {
-			http.Error(w, "unsupported relay endpoint", http.StatusNotFound)
+			refuse("unsupported relay endpoint", http.StatusNotFound)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
+			refuse("invalid request body", http.StatusBadRequest)
 			return
 		}
 		var raw map[string]json.RawMessage
 		if err := json.Unmarshal(body, &raw); err != nil || raw == nil {
-			http.Error(w, "invalid request JSON", http.StatusBadRequest)
+			refuse("invalid request JSON", http.StatusBadRequest)
 			return
 		}
 		var requested string
 		if err := json.Unmarshal(raw["model"], &requested); err != nil || requested != model {
-			http.Error(w, "unrequested model", http.StatusBadRequest)
+			refuse("unrequested model", http.StatusBadRequest)
 			return
 		}
 		for _, field := range []string{"models", "fallbacks"} {
 			if _, ok := raw[field]; ok {
-				http.Error(w, "model fallback is disabled", http.StatusBadRequest)
+				refuse("model fallback is disabled", http.StatusBadRequest)
 				return
 			}
 		}
 		raw["provider"] = json.RawMessage(`{"only":["Z.AI"],"allow_fallbacks":false}`)
+		if err := admission.prepare(raw); err != nil {
+			refuse(err.Error(), http.StatusBadRequest)
+			return
+		}
 		body, err = json.Marshal(raw)
 		if err != nil {
-			http.Error(w, "invalid routed request", http.StatusBadRequest)
+			refuse("invalid routed request", http.StatusBadRequest)
+			return
+		}
+		if err := admission.admit(); err != nil {
+			http.Error(w, "request allowance exhausted or admission evidence unavailable", http.StatusTooManyRequests)
 			return
 		}
 		id := count.Add(1)
@@ -91,6 +125,10 @@ func relayHandler(target *url.URL, key, token, output string, transport http.Rou
 		proxy := &httputil.ReverseProxy{
 			Rewrite: func(p *httputil.ProxyRequest) {
 				p.SetURL(target)
+				if admission != nil {
+					// Headers cannot opt back into billable beta/routing extensions.
+					p.Out.Header = http.Header{"Anthropic-Version": []string{"2023-06-01"}, "Accept": []string{p.In.Header.Get("Accept")}}
+				}
 				p.Out.Header.Set("Authorization", "Bearer "+key)
 				p.Out.Header.Del("X-Api-Key")
 				p.Out.Header.Del("Cookie")

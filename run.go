@@ -488,6 +488,10 @@ func bounded(text string, n int) string {
 }
 
 func runCommand(ctx context.Context, root string, argv []string, logPath string) ([]byte, int, error) {
+	return runCommandWithEnv(ctx, root, argv, logPath, nil)
+}
+
+func runCommandWithEnv(ctx context.Context, root string, argv []string, logPath string, extra map[string]string) ([]byte, int, error) {
 	if len(argv) == 0 {
 		return nil, -1, errors.New("empty command")
 	}
@@ -497,10 +501,13 @@ func runCommand(ctx context.Context, root string, argv []string, logPath string)
 	cmd.Dir = root
 	for _, e := range os.Environ() {
 		name, _, _ := strings.Cut(e, "=")
-		if strings.Contains(name, "KEY") || strings.Contains(name, "TOKEN") || strings.HasPrefix(name, "ANTHROPIC_") || strings.HasPrefix(name, "CLAUDE") {
+		if name == "FANISI_CONTROLLER_ARTIFACT_MANIFEST" || strings.Contains(name, "KEY") || strings.Contains(name, "TOKEN") || strings.HasPrefix(name, "ANTHROPIC_") || strings.HasPrefix(name, "CLAUDE") {
 			continue
 		}
 		cmd.Env = append(cmd.Env, e)
+	}
+	for name, value := range extra {
+		cmd.Env = append(cmd.Env, name+"="+value)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {

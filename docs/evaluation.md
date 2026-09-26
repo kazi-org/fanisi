@@ -173,3 +173,251 @@ resets, out-of-order observations, invalid JSON, inconsistent counts and lines o
 16 MiB fail instead of producing a plausible total. A partially written final
 record also fails; retry after it has been written. The local Codex event shape
 must match the supported fields; this command does not infer missing categories.
+
+## Offline effort and verified landing
+
+`fanisi import-effort STUDY_DIR RECORD.json` appends a version 1 effort record.
+Required fields: `schema_version`, `id`, `study`, `role`, `source_fingerprint`,
+RFC3339 `from` and `to`, `coverage` (`complete` or `partial`), and `allocation`.
+`exclusive` allocation requires `task` and a study-relative `attempt` directory;
+`study` allocation keeps shared `preparation` or `tooling` separately reported.
+Other roles are `coordinator` and `reviewer`. Optional `cost_usd`, `active_seconds`
+and `tokens` remain null when unknown. Token input includes cached input and
+output includes reasoning; `total_tokens` must equal input plus output.
+Repeated identical imports are idempotent. Conflicting identities and overlapping
+intervals from the same source are rejected. Use one stable source fingerprint
+for a source's attribution windows; snapshots from different source versions
+cannot establish non-overlap automatically. Concurrent imports fail on a lock;
+retry after the owner finishes. A crashed importer may leave the lock directory.
+
+`fanisi import-coordinator STUDY_DIR ATTRIBUTION.json COORDINATOR.json` reads the
+existing `coordinator-usage` output directly and fills its snapshot, effective observation window, tokens,
+and nullable price into the attribution record. A stable `source_fingerprint` must be supplied in the attribution; snapshot hashes
+are retained separately, so growing transcripts cannot bypass interval deduplication.
+Cumulative observation coverage remains partial, even with a known price. No transcript parsing, provider calls or price inference occurs.
+
+`fanisi import-landing ATTEMPT_DIR RECORD.json` checks a version 1 record with
+`id`, `repository` (local Git repository), full `target_base` and `merge_commit`
+SHAs, `target_ref` (full target branch ref containing the merge result), `review_record` filename, `patch_sha256`, `merge_evidence`, `independent_review: true` and optional `at`. The referenced
+review must name its reviewer; independence is an explicit caller attestation.
+The repository must be the evaluated Git repository. A temporary index rebuilds
+the reviewed candidate and exact scoped blob/mode deltas must match the landing.
+Equivalent squash/rebase content works; intervening edits to scoped baselines
+require fresh verification and review. Open PRs and ancestry alone prove nothing.
+This command records evidence; it never merges. A correction is a new record;
+revoke old evidence by appending an `id`, `revokes`, `schema_version` and
+`merge_evidence`. Revocations are permanent, preserving prior evidence.
+
+`report` retains historical `arms` fields and adds `effort` and `delivery`.
+Historical `tasks_accepted` means patch review, not landed benchmark acceptance.
+Use `delivery.accepted_landed_tasks` for that denominator: task identity deduplicates
+repairs and alternatives, and `repair_from` marks assisted acceptance. Every
+attempt, including failures, contributes. Delivery receipts deduplicate provider
+plus generation identity and reject inconsistent token subsets; historical
+aggregate-only receipts retain their cost lower bound with incomplete coverage.
+No harness estimate is added to settled receipts. Task-attributed effort costs join the
+known lower bound; shared study preparation/tooling remain separate; missing coordination/review coverage means total cost and
+cost per autonomous acceptance remain null. Review durations and imported reviewer
+active time are separate measurements; do not add them together for the same work.
+Elapsed request-to-landing spans use earliest request and landing timestamps,
+never summed overlapping intervals. Missing timestamps omit that task's elapsed
+value; CI wait remains explicitly null. Study tooling costs have no implicit
+amortization. These records do not rank models or establish total-dollar savings.
+
+## Compare direct Claude with Kazi Claude
+
+The opt-in `kazi-claude` arm uses the same frozen base, task brief, baseline
+verification, final verifier, filesystem audit, review and landing ledger as
+`claude`. Add this object to the evaluation manifest:
+
+```json
+{
+  "kazi": {
+    "executable": "/isolated/bin/kazi",
+    "executable_sha256": "<SHA-256 of the pinned Kazi executable>",
+    "max_dispatches": 2
+  }
+}
+```
+
+Then run `fanisi eval --config evaluation.json --arm kazi-claude --attempt 1`.
+The optional `fanisi_executable` selects an isolated bridge binary; otherwise the
+running Fanisi executable is used. Both executables are hashed as protected
+inputs. Provider pinning to `Z.AI` is required for this arm. The internal
+`eval-bridge` command requires the running evaluation parent's authenticated
+loopback admission service; a standalone bridge invocation cannot admit work.
+
+The generated goal deliberately has no scope paths. Fanisi enforces the exact
+shared task scope against actual filesystem bytes, types and permission modes,
+including ignored files and files hidden by Git index flags. Kazi therefore does
+not generate scope-tree `AGENTS.md` or `CLAUDE.md` files. Default orientation and
+context-tier behavior remain enabled. The goal sets `scope.no_integration=true`,
+`integration.mode="none"`, `conventions.process_contract=false`, and explicitly
+pins `permission_mode="dontAsk"` with the same six tools used by direct Claude.
+These are recorded trial configuration choices, not claims that all Kazi defaults
+are identical to direct Claude. The shared brief supplies the allowed files.
+
+The task's `max_seconds` is one cumulative worker deadline, including controller
+startup, observations and repair. A direct session receives the total turn and
+CLI estimated dollar allowance. Kazi can start up to two sessions, each reserving
+an equal dollar share and an integer turn share (remainder on the last slot).
+Reservations are recorded before launch and never refunded. Concurrent workers
+and launches exceeding the declared dispatch allowance are rejected. This does
+not equalize actual session counts: one session versus up to two is an explicit
+treatment difference. Claude turns are not HTTP request counts; CLI dollar
+estimates are not invoice caps, and the task's input-token allowance is not an
+enforced Claude token limit. No pilot spending guarantee follows from these
+settings. Provider receipt reconciliation remains necessary.
+
+Workers own process groups and stop at the same deadline in both arms. Kazi has
+up to five additional seconds for controller termination and receipt flushing;
+no new worker admission is available during that grace. The parent also records
+active worker process groups and kills them on controller termination. Ordinary
+nonzero exits and timeouts remain in attempt/dispatch evidence but do not veto
+an independently valid final candidate. Scope or trusted-input integrity errors
+still fail closed. Final verification creates only `verified_pending_review`;
+independent review and verified landing remain separate ledger events.
+
+### Controller artifacts and receipt manifests
+
+The parent captures exact controller artifacts before admitting each worker,
+checks them after that worker and again before final grading, and protects the
+manifest bytes with an in-memory digest. Default artifacts are only
+`.kazi/context.md` with the generated orientation banner and the canonical
+code-review-graph `.mcp.json`. Other regular artifacts require exact predeclared
+SHA-256 values in `kazi.artifacts`. There is no blanket `.kazi` exception;
+unexpected instructions, symlinks, additional files or mode changes are rejected.
+The pinned controller is trusted to generate these files at the admission
+boundary. This is an audit boundary, not an OS sandbox against hostile processes
+sharing the same account.
+
+The final verifier receives `FANISI_CONTROLLER_ARTIFACT_MANIFEST` only after the
+parent validates its bytes against its own records. Its version 1 JSON schema is:
+
+```json
+{
+  "schema_version": 1,
+  "workspace_base": "<full frozen commit SHA>",
+  "artifacts": {
+    ".kazi/context.md": {
+      "sha256": "<exact generated bytes SHA-256>",
+      "type": "regular",
+      "mode": 420,
+      "baseline": null
+    }
+  }
+}
+```
+
+Paths are relative to the candidate. Modes are decimal POSIX permission bits.
+A modified baseline file has its prior `sha256`, `type`, `mode` and, for a
+symlink, `link_target` recorded in `baseline`; a newly created file has `null`.
+A verifier must match exact identities and restrict any exceptions to these
+records. A worker's self-invoked verifier or forged environment cannot authorize
+the final parent's acceptance. Candidate patches use raw Git objects with clean
+filters and text conversion disabled, preserving the audited production bytes.
+
+`dispatch-manifest.json` lists explicit `dispatch-0001`/`dispatch-0002` directories,
+admission/completion times, reserved turns and estimated dollars, errors,
+artifact identities, cumulative deadline and rejected admissions. Running
+`fanisi reconcile ATTEMPT_DIR` reconciles every listed dispatch, including failed
+ones, then writes one attempt receipt ledger. Duplicate provider/request IDs are
+counted once; conflicting duplicates fail. Missing, empty or incomplete dispatch
+receipts keep totals unknown while preserving known lower bounds.
+
+### Offline installed integration check
+
+The synthetic fixture has no private project content. With isolated binaries:
+
+```sh
+FANISI_E77_CANDIDATE_BINARY=/isolated/bin/fanisi \
+FANISI_E77_KAZI_BINARY=/isolated/bin/kazi \
+  go test -run '^TestInstalledKaziEvaluation$' -v .
+```
+
+This explicitly selected test executes both supplied binaries with a fake Claude
+worker. It checks first-pass success, failed-first repair, rejected unexpected
+instructions, and timeout during an active worker/relay request. The last case
+uses a blocking localhost proxy, sends no provider request, checks worker and
+child process death, and retains incomplete receipt evidence. Kazi database,
+state, sinks and home directories are private to each temporary trial. The
+ordinary offline suite skips this check unless both binary paths are supplied.
+
+## Optional Claude provider-request admission
+
+An evaluation can opt into one additional pre-forward admission contract:
+
+```json
+{
+  "claude_admission": {
+    "max_requests": 24,
+    "max_output_tokens": 8192,
+    "max_price_usd_per_million": {"prompt": 0.15, "completion": 0.50}
+  }
+}
+```
+
+This block requires `claude_provider: "Z.AI"`. Requests and output allowances
+must be positive; output is bounded to 64,000 and prices must be finite and
+positive. Without the block, existing relay behavior and CLI settings remain
+unchanged. Set `claude_max_output_tokens` to 8192 as well when freezing this
+example; admission clamps a larger CLI setting to its own output limit.
+
+A direct run receives 24 request reservations. A two-dispatch Kazi run reserves
+12 for each dispatch, including a failed first dispatch. A bridge capability
+handshake is required before launch when this block is present; an older bridge
+that could ignore the new option is refused. Neither retries nor
+failed upstream calls refund a reservation, and unused capacity does not move
+between dispatches. An atomic process-local counter records admission before
+forwarding; concurrent requests cannot exceed the reserved count. Requests over
+the count receive HTTP 429 and never reach upstream. Invalid or excessive
+`max_tokens` values are rejected, so worker-supplied output settings cannot
+raise the declared cap.
+
+Every admitted request overrides provider routing to `Z.AI` only, disables
+fallback and supplies the declared prompt/completion `provider.max_price` values
+in USD per million tokens. This proves what the relay sends. Live provider
+handling of those price preferences, input-token limits and invoice ceilings
+is not certified by offline tests. Admission evidence is not a receipt and
+cannot release a monetary reserve; actual receipt reconciliation remains
+necessary before treating any unused reserve as available.
+
+Only the ordinary message request fields and custom client tools are admitted.
+Unknown request extensions, server tools, plugins, containers, service tiers,
+and nontrivial context-management edits fail closed. The installed Claude CLI's
+exact `clear_thinking_20251015` / `keep: "all"` context marker is a no-op and is
+removed before forwarding; no other context edit is accepted. Outbound headers
+are restricted to ordinary API authentication, content and version headers, so
+beta or alternate routing headers cannot opt into other provider features.
+
+Admission also sets `DISABLE_PROMPT_CACHING=1` and rejects nested `cache_control`
+markers. The declared prompt/completion caps do not establish a cache-write
+pricing contract. This common setting applies to both arms when the block is
+present; it intentionally changes their normal cache behavior. The installed
+Claude offline protocol probe verifies the effective request, including the
+8,192 output limit, absent cache markers and explicit routing prices.
+
+Each relay writes `claude-admission.json` containing `schema_version: 1`, the
+frozen `limits`, `admitted_requests`, `refused_requests`, `refusal_reasons` and a
+basis note distinguishing these declarations from receipts. Shutdown rewrites
+that record from process memory after worker completion. Kazi's explicit
+`dispatch-manifest.json` additionally records `total_request_allowance` and each
+`reserved_requests` share. Those counts are separate from generation IDs,
+provider token usage and actual cost in `provider-ledger.json`.
+
+Offline qualification commands:
+
+```sh
+FANISI_CLAUDE_PROTOCOL_TEST=1 \
+  go test -run '^TestInstalledClaude(RequestShape|AdmissionRun)$' -v .
+FANISI_E77_CANDIDATE_BINARY=/isolated/bin/fanisi \
+FANISI_E77_KAZI_BINARY=/isolated/bin/kazi \
+  go test -run '^TestInstalledAdmissionBudget$' -v .
+```
+
+The first command uses the installed Claude executable against a rejecting
+localhost API; the second uses fake Claude and a localhost proxy that refuses
+CONNECT before any provider connection. Both are offline and send no provider
+inference request. Source fake transports also check concurrent excess traffic,
+failed-call retention, routing overrides, output violations and unsupported
+extensions. No paid test is enabled by this block or these commands.

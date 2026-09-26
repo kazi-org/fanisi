@@ -28,7 +28,8 @@ func main() {
 	}
 }
 
-const version = "0.1.0-dev"
+// Release packaging sets version with -ldflags "-X main.version=...".
+var version = "0.1.0-dev"
 
 const usageText = `fanisi - measured software changes
 
@@ -40,6 +41,9 @@ const usageText = `fanisi - measured software changes
   fanisi eval --config evaluation.json --arm fanisi|claude|claude-packet [--attempt 1]
   fanisi reconcile --key-file .env ATTEMPT_DIRECTORY
   fanisi review --attempt DIR --decision accept|reject --reviewer NAME --kind human|agent --seconds N --notes-file FILE
+  fanisi import-effort STUDY_DIRECTORY RECORD_JSON
+  fanisi import-coordinator STUDY_DIRECTORY ATTRIBUTION_JSON COORDINATOR_JSON
+  fanisi import-landing ATTEMPT_DIRECTORY RECORD_JSON
   fanisi report STUDY_DIRECTORY
   fanisi coordinator-usage --from RFC3339 --to RFC3339 TRANSCRIPT_JSONL
   fanisi compose …   (see: fanisi compose --help)
@@ -59,6 +63,8 @@ func mainContext(ctx context.Context, args []string) error {
 	case "version", "--version":
 		fmt.Println("fanisi", version)
 		return nil
+	case "eval-bridge":
+		return evaluationBridge(ctx, args[1:])
 	case "claude-bridge":
 		fs := flag.NewFlagSet("claude-bridge", flag.ContinueOnError)
 		task := fs.String("config", "", "frozen task configuration")
@@ -76,7 +82,7 @@ func mainContext(ctx context.Context, args []string) error {
 	case "eval":
 		fs := flag.NewFlagSet("eval", flag.ContinueOnError)
 		path := fs.String("config", "", "frozen evaluation configuration")
-		arm := fs.String("arm", "", "fanisi, claude, or claude-packet")
+		arm := fs.String("arm", "", "fanisi, claude, claude-packet, or kazi-claude")
 		attempt := fs.Int("attempt", 1, "unique attempt number")
 		if err := fs.Parse(args[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -110,6 +116,18 @@ func mainContext(ctx context.Context, args []string) error {
 			return err
 		}
 		return recordReview(ctx, *dir, *decision, *reviewer, *kind, *seconds, string(notes))
+	case "import-landing":
+		if len(args) == 3 {
+			return importLanding(ctx, args[1], args[2])
+		}
+	case "import-coordinator":
+		if len(args) == 4 {
+			return importEffortSource(args[1], args[2], args[3])
+		}
+	case "import-effort":
+		if len(args) == 3 {
+			return importEffort(args[1], args[2])
+		}
 	case "report":
 		if len(args) == 2 {
 			return report(args[1], os.Stdout)

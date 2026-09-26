@@ -129,3 +129,76 @@ func TestReconciliationRecoversEarlyIDsButPreservesCoverageGaps(t *testing.T) {
 		})
 	}
 }
+
+func TestReconciliationAccountsForFailedClaudeWithCompleteAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		mutate   func(string)
+		complete bool
+	}{
+		{"budget_terminal", func(string) {}, true},
+		{"missing_admitted_request", func(dir string) {
+			if err := writeJSON(filepath.Join(dir, "claude-admission.json"), AdmissionEvidence{SchemaVersion: 1, Limits: ClaudeAdmission{MaxRequests: 2, MaxOutputTokens: 16, MaxPrice: AdmissionPrice{Prompt: 0.15, Completion: 0.5}}, Admitted: 2}); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"identity_gap", func(dir string) {
+			if err := writeJSON(filepath.Join(dir, "relay-request-1.json"), map[string]any{"request": 1, "status_code": 200, "generation_ids": []string{"gen-one"}, "stream_complete": true, "identity_gap": true}); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"missing_terminal", func(dir string) {
+			if err := os.WriteFile(filepath.Join(dir, "claude-stream.jsonl"), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"invalid_admission", func(dir string) {
+			if err := writeJSON(filepath.Join(dir, "claude-admission.json"), AdmissionEvidence{SchemaVersion: 2, Admitted: 1}); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"extra_trace_identity", func(dir string) {
+			if err := os.WriteFile(filepath.Join(dir, "claude-stream.jsonl"), []byte("{\"type\":\"assistant\",\"message\":{\"id\":\"gen-extra\"}}\n{\"type\":\"result\",\"is_error\":true}\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "claude-stream.jsonl"), []byte("{\"type\":\"result\",\"subtype\":\"error_max_budget_usd\",\"is_error\":true}\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := writeJSON(filepath.Join(dir, "claude-admission.json"), AdmissionEvidence{SchemaVersion: 1, Limits: ClaudeAdmission{MaxRequests: 2, MaxOutputTokens: 16, MaxPrice: AdmissionPrice{Prompt: 0.15, Completion: 0.5}}, Admitted: 1}); err != nil {
+				t.Fatal(err)
+			}
+			if err := writeJSON(filepath.Join(dir, "relay-request-1.json"), map[string]any{"request": 1, "status_code": 200, "generation_ids": []string{"gen-one"}, "stream_complete": true}); err != nil {
+				t.Fatal(err)
+			}
+			tc.mutate(dir)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": r.URL.Query().Get("id"), "model": model, "provider_name": "Z.AI", "total_cost": 0.001, "native_tokens_prompt": 10, "native_tokens_completion": 2}}); err != nil {
+					t.Error(err)
+				}
+			}))
+			defer server.Close()
+			target, err := url.Parse(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = reconcileWithClient(context.Background(), dir, "fixture-key", &http.Client{Transport: redirectTransport{target: target, base: http.DefaultTransport}})
+			var ledger ReceiptLedger
+			if readErr := readJSON(filepath.Join(dir, "provider-ledger.json"), &ledger); readErr != nil {
+				t.Fatal(readErr)
+			}
+			if (err == nil) != tc.complete || ledger.Complete != tc.complete {
+				t.Fatalf("err=%v complete=%v want=%v", err, ledger.Complete, tc.complete)
+			}
+			if tc.complete && (ledger.Cost == nil || *ledger.Cost != 0.001) {
+				t.Fatalf("lost measured failed-attempt spend: %+v", ledger)
+			}
+			if !tc.complete && ledger.Cost != nil {
+				t.Fatal("gap falsely settled")
+			}
+		})
+	}
+}
