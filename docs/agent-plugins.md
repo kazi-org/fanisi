@@ -81,7 +81,8 @@ into Codex's cache; re-run `codex plugin add` after regenerating. Remove with
 ## Self-application recipe
 
 `scripts/self-apply-agent-plugins.sh RUN_DIR` generates `plugins/generated`
-through a real `fanisi compose dispatch`:
+through a real `fanisi compose dispatch`. The recipe also requires `python3`
+to encode filesystem paths safely in JSON:
 
 1. Refuses unless the Git workspace is clean and `plugins/generated` is absent.
    It never cleans, stashes or deletes anything; commit authored work first.

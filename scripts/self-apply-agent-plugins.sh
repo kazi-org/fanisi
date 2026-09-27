@@ -8,7 +8,7 @@
 # composition artifacts, journal and delegate output. The only product writes
 # are the files `amsl-agent-plugin files` lists under plugins/generated.
 #
-# Requires `fanisi` and `amsl-agent-plugin` on PATH (see docs/agent-plugins.md).
+# Requires `fanisi`, `amsl-agent-plugin` and `python3` on PATH (see docs/agent-plugins.md).
 # The workspace must be clean at a committed HEAD; this script never cleans,
 # stashes or deletes anything. The catalog is an empty, explicitly labelled
 # offline catalog and the evidence list is empty: the decision is product_local
@@ -30,6 +30,7 @@ REPO=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)
 SPEC_REL=plugins/fanisi.spec.json
 OUT_REL=plugins/generated
 
+command -v python3 >/dev/null 2>&1 || fail "python3 is not on PATH"
 command -v fanisi >/dev/null 2>&1 || fail "fanisi is not on PATH"
 command -v amsl-agent-plugin >/dev/null 2>&1 || fail "amsl-agent-plugin is not on PATH"
 
@@ -60,6 +61,11 @@ ART="$RUN/artifacts"
 JOURNAL="$RUN/journal"
 OUT="$RUN/output"
 mkdir -p "$ART/decisions" "$OUT"
+
+# Paths are JSON values, not shell-escaped strings. Preserve quotes, backslashes
+# and other valid filesystem characters when constructing composition records.
+REPO_JSON=$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$REPO")
+OUT_JSON=$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$OUT")
 
 HEAD=$(git -C "$REPO" rev-parse HEAD)
 DEADLINE=$(date -u -v+30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)
@@ -98,7 +104,7 @@ cat > "$ART/request.json" <<EOF
   "behaviors": [
     {"behavior_id": "agent-host-plugins", "required": true, "contract": "plugins/fanisi.spec.json"}
   ],
-  "workspace": "$REPO",
+  "workspace": $REPO_JSON,
   "write_paths": $WRITES,
   "protected_paths": $PROTECTED,
   "authority_ref": "operator:agent-plugins-self-application",
@@ -169,8 +175,8 @@ cat > "$ART/impl.json" <<EOF
   "protected_paths": $PROTECTED,
   "verify_command": ["amsl-agent-plugin", "check", "--spec", "$SPEC_REL", "--out", "$OUT_REL"],
   "delegate_argv": ["amsl-agent-plugin", "generate", "--spec", "$SPEC_REL", "--out", "$OUT_REL"],
-  "workspace": "$REPO",
-  "output_dir": "$OUT",
+  "workspace": $REPO_JSON,
+  "output_dir": $OUT_JSON,
   "reserved_usd": 0,
   "max_seconds": 120,
   "deadline": "$DEADLINE",
