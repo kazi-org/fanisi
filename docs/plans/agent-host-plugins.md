@@ -1,6 +1,6 @@
 # Plan: agent host plugins for `fanisi compose`
 
-Status: proposed. Nothing here accepts generated output, promotes the AMSL
+Status: implemented and reviewed. Nothing here automatically accepts generated output, promotes the AMSL
 generator or claims catalog status. Setup, exposed tools and the
 self-application recipe are in [../agent-plugins.md](../agent-plugins.md).
 

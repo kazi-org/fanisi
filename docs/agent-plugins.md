@@ -1,6 +1,6 @@
 # Agent host plugins for `fanisi compose`
 
-Status: proposed. Generated output is committed only after coordinator review.
+Status: implemented and reviewed. Generated output is committed only after coordinator review.
 
 ## What this is
 
@@ -102,9 +102,28 @@ to encode filesystem paths safely in JSON:
    and re-runs `check` read-only. Acceptance and committing the generated
    output remain separate, reviewed steps.
 
-To regenerate after a spec change, commit the spec, then run the script in a
-fresh checkout (or after removing `plugins/generated` yourself) and review the
-diff. The script does not overwrite existing output.
+To regenerate after a spec change, first commit the spec. The generated files
+are tracked, so a fresh checkout still contains them and an uncommitted removal
+fails the clean-workspace guard. Prepare a clean revision without the old output
+in an **isolated worktree**:
+
+```sh
+git worktree add -b regenerate-agent-plugins ../fanisi-agent-plugin-regeneration HEAD
+cd ../fanisi-agent-plugin-regeneration
+git rm -r plugins/generated
+git commit -m "Prepare clean revision for plugin regeneration"
+sh scripts/self-apply-agent-plugins.sh ../fanisi-agent-plugin-run
+# Inspect the generated files and verification result before committing.
+git add plugins/generated
+git diff --cached
+git commit -m "Regenerate agent host plugins through composition"
+```
+
+Choose unused worktree, branch and run-directory names. Integrate the completed
+regeneration, including its final output; do not merge the intermediate removal
+commit alone. The script never overwrites existing output. The opt-in
+`python3 scripts/test-self-apply-agent-plugins.py` exercises this clean-revision
+workflow with real installed binaries in a temporary repository.
 
 ## Evidence
 
