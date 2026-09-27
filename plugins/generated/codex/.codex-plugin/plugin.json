@@ -1,0 +1,26 @@
+{
+  "name": "fanisi-compose",
+  "version": "0.1.0",
+  "description": "Inspect, validate, dispatch and track offline Fanisi composition attempts through the installed fanisi CLI.",
+  "author": {
+    "name": "Fanisi contributors"
+  },
+  "keywords": [
+    "composition",
+    "coding-harness",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Fanisi Compose",
+    "shortDescription": "Inspect, validate, dispatch and track offline Fanisi composition attempts through the installed fanisi CLI.",
+    "longDescription": "Drive Fanisi's offline composition workflow (catalog, hash, validate, decide, manifest, dispatch, status, cancel) with the installed fanisi CLI.",
+    "developerName": "Fanisi contributors",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ]
+  }
+}

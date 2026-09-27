@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "generator": "github.com/ajent-social/go/cliagent",
+  "generator_format": 2,
+  "host": "claude-code",
+  "plugin": {
+    "name": "fanisi-compose",
+    "version": "0.1.0"
+  },
+  "spec_sha256": "b2b122fb3e2858e459c73a90dcf51b551efb4abd12501ee2daece75e607b88a5",
+  "files": {
+    ".claude-plugin/plugin.json": "318de37034e181a38be68ca3a4a16a80ff8deec9f53110f90d70840e5c03ac79",
+    ".mcp.json": "bec2080ad4323627e0b29eec95b75714a3542c071ff5531b5b1404371a820430",
+    "README.md": "f73d8df84d16c9017918218da362cd475c3cb0baf90e561bc27465e9a071782b",
+    "amsl-agent-plugin.spec.json": "87c37f58f6e1c8881aa69e03178e874d87948444c36dba55b90d0b9122fa808a",
+    "skills/fanisi-compose/SKILL.md": "90c3be66a32d61355a8442d9a508b4649de4afaa477661bf94184c271913fdf9"
+  }
+}

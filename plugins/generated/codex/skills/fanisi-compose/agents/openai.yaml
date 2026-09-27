@@ -1,0 +1,5 @@
+interface:
+  display_name: "Fanisi Compose"
+  short_description: "Inspect, validate, dispatch and track offline Fanisi composition attempts through the installed fanisi CLI."
+policy:
+  allow_implicit_invocation: false
