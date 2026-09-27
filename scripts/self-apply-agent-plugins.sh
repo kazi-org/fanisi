@@ -87,7 +87,7 @@ cat > "$ART/catalog.json" <<'EOF'
 }
 EOF
 printf '[]\n' > "$ART/evidence.json"
-PIN=$(shasum -a 256 "$ART/catalog.json" | awk '{print $1}')
+PIN=$(shasum -a 256 < "$ART/catalog.json" | awk '{print $1}')
 
 cat > "$ART/request.json" <<EOF
 {
