@@ -39,3 +39,20 @@ No interactive agent/UI invocation in any host or remote CI run is claimed.
 The generation journal, protocol responses and suite logs are retained under
 ignored `.fanisi/implementation/`. The reproducible recipe and installation
 commands are in [the guide](agent-plugins.md) and [plugin README](../plugins/README.md).
+
+## Local Codex installation
+
+After qualification, the tested `fanisi` and `amsl-agent-plugin` binaries were
+installed without replacing any existing executable. The generated marketplace
+was registered in the normal Codex profile and
+`fanisi-compose@fanisi-compose` was installed. `codex plugin list --json`
+confirmed `installed: true` and `enabled: true`, using the main checkout's
+`plugins/generated/codex` directory. An independent stdio probe then exercised
+that installed configuration and those installed binaries against the real
+AMSL catalog, including the argument and error boundaries above.
+
+Start a fresh Codex session to load the plugin. This is installation plus
+protocol evidence, not a claim of an interactive agent task in the current
+session. Claude Code and Cursor packages are generated and ready for their
+normal installation flows. Source changes are local commits, not published
+AMSL releases or merged remote changes.
