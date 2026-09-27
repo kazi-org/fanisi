@@ -35,8 +35,9 @@ Constraints kept:
    Hashes, journal state and source commits for each run are recorded in the
    coordinator's result summary, not in this file (it is a protected input of
    the run).
-4. Remaining: coordinator review of the source and generated output, then
-   the coordinator commits `plugins/generated/`.
+4. Done: coordinator inspected and committed `plugins/generated/`.
+   Subsequent independent headless review and merge qualification are recorded
+   in [the validation record](../agent-plugins-validation.md).
 
 ## Host qualification gates
 

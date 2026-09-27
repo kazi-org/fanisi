@@ -56,3 +56,14 @@ protocol evidence, not a claim of an interactive agent task in the current
 session. Claude Code and Cursor packages are generated and ready for their
 normal installation flows. Source changes are local commits, not published
 AMSL releases or merged remote changes.
+
+## PR qualification
+
+[PR #13](https://github.com/kazi-org/fanisi/pull/13) passed Linux and macOS
+formatting, vet, full race tests, build, dry-run and all offline release-smoke
+checks. The reviewed AMSL runtime passed its affected package/command race
+suites and fresh probes against every generated host configuration: eight tools,
+catalog success, missing-file errors, invalid argument rejection and literal
+shell-looking values. Its drift check accepted the committed files unchanged.
+This supersedes the initial local-only CI limitation above. Live host agent/UI
+use remains unverified; no capability maturity promotion is claimed.
