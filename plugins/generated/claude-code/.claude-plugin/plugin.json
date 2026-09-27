@@ -1,0 +1,13 @@
+{
+  "name": "fanisi-compose",
+  "version": "0.1.0",
+  "description": "Inspect, validate, dispatch and track offline Fanisi composition attempts through the installed fanisi CLI.",
+  "author": {
+    "name": "Fanisi contributors"
+  },
+  "keywords": [
+    "composition",
+    "coding-harness",
+    "mcp"
+  ]
+}

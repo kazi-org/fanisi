@@ -197,3 +197,11 @@ starts red and is not part of the root test suite.
 The [design](docs/design.md) describes the current boundaries. The
 [initial experiment](docs/experiment-001.md) records why this project exists and
 why its early savings are not yet a general productivity claim.
+
+## Coding-agent plugins
+
+Fanisi now has generated Codex, Claude Code and Cursor packages with eight
+composition tools over stdio MCP. The reusable generator/runtime lives in AMSL;
+Fanisi uses its own composition workflow to generate these packages. See the
+[setup and self-generation guide](docs/agent-plugins.md),
+[plugin packages](plugins/README.md) and [validation](docs/agent-plugins-validation.md).

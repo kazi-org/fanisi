@@ -1,0 +1,20 @@
+{
+  "name": "fanisi-compose",
+  "interface": {
+    "displayName": "Fanisi Compose"
+  },
+  "plugins": [
+    {
+      "name": "fanisi-compose",
+      "source": {
+        "source": "local",
+        "path": "./codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "generator": "github.com/ajent-social/go/cliagent",
+  "generator_format": 2,
+  "host": "codex",
+  "plugin": {
+    "name": "fanisi-compose",
+    "version": "0.1.0"
+  },
+  "spec_sha256": "b2b122fb3e2858e459c73a90dcf51b551efb4abd12501ee2daece75e607b88a5",
+  "files": {
+    ".codex-plugin/plugin.json": "51e89b2bff5b75bd619b8b83325b53cd75766217dd3a3f63e982b671444286f9",
+    ".mcp.json": "bec2080ad4323627e0b29eec95b75714a3542c071ff5531b5b1404371a820430",
+    "README.md": "fa7e847853c65dc2459e5777cdf86e31e9899fe617f0761d1baae8745b75d2c2",
+    "amsl-agent-plugin.spec.json": "87c37f58f6e1c8881aa69e03178e874d87948444c36dba55b90d0b9122fa808a",
+    "skills/fanisi-compose/SKILL.md": "5f44ec12849dab6d6cefdf1fcea36f6a0345a7717fc8ecb57ce17cb588fbc4cd",
+    "skills/fanisi-compose/agents/openai.yaml": "137d74d1733f65890873156319dc8a0633a2e1fb76d7d7e8cf3f41418625521a"
+  },
+  "output_root_files": {
+    ".agents/plugins/marketplace.json": "cca9472c1c3a4b4583d2c09300249996fcd543d31513510724dd0101696289d9"
+  }
+}
